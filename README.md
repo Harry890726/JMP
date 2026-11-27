@@ -19,7 +19,7 @@ Opening `index.html` directly also works. Serving it over HTTP is needed only fo
 
 | Menu | Platforms / commands |
 |---|---|
-| **File** | New table, open CSV/TSV/JSON, sample data, new table from clipboard, save as Excel (.xlsx; formula columns kept as Excel formulas) or CSV, save project, export report, print |
+| **File** | New table, open CSV/TSV/JSON, sample data, new table from clipboard, save as Excel (.xlsx; formula columns kept as Excel formulas) or CSV, save project, export report, run JSL scripts |
 | **Tables** | Summary, Subset, Sort, Stack, Split, Transpose, Concatenate, Join, Tabulate |
 | **Rows** | Exclude / Hide / Label, colors, Select Where, invert, random, duplicates, color by column, add and delete rows |
 | **Cols** | New columns (sequence, random, constant, formula), Column Info, Formula Editor, Recode, modeling type, Columns Viewer |
