@@ -299,7 +299,15 @@ const JSL = (() => {
             if (t.obj.k === 'name') { const key = norm(t.obj.name); const arr = this.vars.get(key); if (!Array.isArray(arr)) throw new Error('Subscript assignment needs a list or column'); const i = this.num(this.ev(t.idx[0])) - 1; arr[i] = combine(arr[i]); return arr[i]; }
             throw new Error('Cannot assign to this subscript');
           }
-          ref = o; r = this.num(this.ev(t.idx[0])) - 1;
+          ref = o;
+          const iv = this.deref(this.ev(t.idx[0]));
+          if (Array.isArray(iv)) {
+            const ci = ref.ci; const rows = iv.flat(2).map(x => this.num(x) - 1).filter(x => x >= 0 && x < ref.dt.nrows);
+            App.pushUndo(ref.dt, `JSL assign ${ref.name}`, [ci], rows);
+            for (const rr of rows) ref.dt.setCell(rr, ci, this.deref(combine(ref.dt.columns[ci].values[rr])));
+            ref.dt._jslDirty = true; return v;
+          }
+          r = this.num(iv) - 1;
         }
         const ci = ref.ci; const val = combine(ref.dt.columns[ci].values[r]);
         ref.dt.setCell(r, ci, this.deref(val));

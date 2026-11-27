@@ -46,6 +46,7 @@ const App = {
       { label: 'Column Info...', action: () => this.columnInfo(t, ci) },
       { label: 'Formula...', action: () => this.formulaEditor(t, ci) },
       { label: 'Recode...', action: () => this.recode(t, ci) },
+      { label: 'Replace / Fill', submenu: this.fillMenu(t, ci) },
       { label: 'Modeling Type', submenu: this.modelingTypeMenu(t, ci) },
       '-',
       { label: 'Sort Ascending', action: () => this.sortBy(t, ci, 1) }, { label: 'Sort Descending', action: () => this.sortBy(t, ci, -1) },
@@ -56,6 +57,143 @@ const App = {
       { label: 'Insert Columns', action: () => { t.addColumn({ name: 'Column', at: ci }); t.selCols.clear(); t.emit('structure'); } },
       { label: 'Delete Columns', action: () => this.deleteColumns(t, t.selCols.size ? [...t.selCols] : [ci]) },
     ];
+  },
+  // ---------------- undo ----------------
+  undoStack: [],
+  /** Remember the current values of cells (columns cis × rows) before changing them */
+  pushUndo(t, label, cis, rows) {
+    const cols = cis.map(ci => { const c = t.columns[ci]; return { name: c.name, ci, dataType: c.dataType, modelingType: c.modelingType, old: rows ? rows.map(r => c.values[r]) : c.values.slice() }; });
+    this.undoStack.push({ t, label, rows, cols });
+    if (this.undoStack.length > 20) this.undoStack.shift();
+  },
+  undo() {
+    const u = this.undoStack.pop();
+    if (!u) { status('Nothing to undo'); return; }
+    const t = u.t;
+    for (const c of u.cols) {
+      const ci = t.columns[c.ci] && t.columns[c.ci].name === c.name ? c.ci : t.colIndex(c.name);
+      if (ci < 0) continue;
+      const col = t.columns[ci];
+      col.dataType = c.dataType; col.modelingType = c.modelingType;
+      if (u.rows) u.rows.forEach((r, i) => { if (r < t.nrows) col.values[r] = c.old[i]; }); else col.values = c.old;
+    }
+    t.emit('data');
+    status(`Undid: ${u.label}`);
+  },
+  // ---------------- replace / fill ----------------
+  fillMenu(t, ci) {
+    return [
+      { label: 'Replace Values...', action: () => this.replaceDialog(t, ci) },
+      { label: 'Fill Selected Cells with Value...', action: () => this.replaceDialog(t, ci, 'set') },
+      { label: 'Fill to End of Table (from last selected row)', action: () => this.fillToEnd(t, ci) },
+      { label: 'Fill Selected Rows with Sequence...', action: () => this.fillSequence(t, ci) },
+    ];
+  },
+  targetRows(t) { return t.selCount ? t.selectedRows() : [...t.rows.keys()]; },
+  replaceDialog(t, ci0, mode = 'set') {
+    const sel = t.selCount;
+    const cols0 = t.selCols.size ? [...t.selCols] : ci0 !== undefined && ci0 !== null ? [ci0] : [];
+    const content = el(`<div class="form">
+      <div class="frow"><span class="flabel">Columns</span>
+        <div class="rp-cols">${t.columns.map((c, i) => `<label class="fchk"><input type="checkbox" value="${i}" ${cols0.includes(i) ? 'checked' : ''} ${c.formula ? 'disabled title="Formula column"' : ''}> ${typeIcon(c.modelingType)} ${esc(c.name)}${c.formula ? ' <span class="mut small">(formula)</span>' : ''}</label>`).join('')}</div></div>
+      <label class="frow"><span class="flabel">Rows</span><select id="rp-rows"><option value="sel" ${sel ? 'selected' : ''} ${sel ? '' : 'disabled'}>Selected rows (${sel.toLocaleString()})</option><option value="all" ${sel ? '' : 'selected'}>All rows (${t.nrows.toLocaleString()})</option><option value="excl">Rows that are not excluded</option></select></label>
+      <label class="frow"><span class="flabel">Action</span><select id="rp-mode">
+        <option value="set" ${mode === 'set' ? 'selected' : ''}>Set every cell to a value</option>
+        <option value="find" ${mode === 'find' ? 'selected' : ''}>Find and replace</option>
+        <option value="calc" ${mode === 'calc' ? 'selected' : ''}>Calculate from current value (x)</option></select></label>
+      <div class="rp-set"><label class="frow"><span class="flabel">New value (leave empty for missing)</span><input id="rp-val"></label></div>
+      <div class="rp-find"><label class="frow"><span class="flabel">Find</span><input id="rp-find"></label><label class="frow"><span class="flabel">Replace with</span><input id="rp-with"></label>
+        <label class="fchk"><input type="checkbox" id="rp-whole"> Match whole cell only</label><label class="fchk"><input type="checkbox" id="rp-case"> Match case</label>
+        <label class="fchk"><input type="checkbox" id="rp-re"> Regular expression</label><div class="small mut rp-count"></div></div>
+      <div class="rp-calc"><label class="frow"><span class="flabel">Expression using x (the current value), e.g. x / 1000, Round(x, 2), If(x &lt; 0, 0, x), x + :Offset</span><input id="rp-expr" value="x"></label></div>
+    </div>`);
+    const show = () => { const m = $('#rp-mode', content).value; $('.rp-set', content).hidden = m !== 'set'; $('.rp-find', content).hidden = m !== 'find'; $('.rp-calc', content).hidden = m !== 'calc'; };
+    $('#rp-mode', content).addEventListener('change', show); show();
+    return UI.dialog({
+      title: 'Replace Values', width: 500, content,
+      buttons: [{ label: 'Select Matching Rows', onClick: b => { const o = this.readReplace(b); if (!o) return false; const rows = this.matchRows(t, o); t.select(rows); $('.rp-count', b).textContent = `${rows.length.toLocaleString()} matching row(s) selected.`; return false; } },
+        { label: 'Replace', primary: true, onClick: b => { const o = this.readReplace(b); if (!o) return false; return this.applyReplace(t, o) ? true : false; } },
+        { label: 'Cancel', value: null }],
+    });
+  },
+  readReplace(b) {
+    const cols = $$('.rp-cols input:checked', b).map(i => +i.value);
+    if (!cols.length) { UI.alert('Tick at least one column.'); return null; }
+    return { cols, rows: $('#rp-rows', b).value, mode: $('#rp-mode', b).value, val: $('#rp-val', b).value, find: $('#rp-find', b).value, rep: $('#rp-with', b).value,
+      whole: $('#rp-whole', b).checked, matchCase: $('#rp-case', b).checked, re: $('#rp-re', b).checked, expr: $('#rp-expr', b).value };
+  },
+  rowSet(t, which) { return which === 'sel' ? t.selectedRows() : which === 'excl' ? t.analysisRows() : [...t.rows.keys()]; },
+  finder(o) {
+    if (o.re) { const rx = new RegExp(o.whole ? `^(?:${o.find})$` : o.find, o.matchCase ? 'g' : 'gi'); return { test: s => { rx.lastIndex = 0; return rx.test(s); }, replace: s => s.replace(rx, o.rep) }; }
+    const f = o.matchCase ? o.find : o.find.toLowerCase();
+    if (o.whole) return { test: s => (o.matchCase ? s : s.toLowerCase()) === f, replace: () => o.rep };
+    const rx = new RegExp(o.find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), o.matchCase ? 'g' : 'gi');
+    return { test: s => (o.matchCase ? s : s.toLowerCase()).includes(f), replace: s => s.replace(rx, () => o.rep) };
+  },
+  matchRows(t, o) {
+    const rows = this.rowSet(t, o.rows);
+    if (o.mode !== 'find' || o.find === '') return rows;
+    let F; try { F = this.finder(o); } catch (e) { UI.alert('Invalid regular expression: ' + esc(e.message)); return []; }
+    return rows.filter(r => o.cols.some(ci => { const v = t.columns[ci].values[r]; return !DataTable.isMissing(v) && F.test(String(v)); }));
+  },
+  applyReplace(t, o) {
+    const rows = this.rowSet(t, o.rows);
+    if (!rows.length) { UI.alert('No rows to change.'); return false; }
+    let F, X;
+    try {
+      if (o.mode === 'find') { if (o.find === '') { UI.alert('Enter the text to find.'); return false; } F = this.finder(o); }
+      if (o.mode === 'calc') { X = Formula.compileX(t, o.expr); X(t.columns[o.cols[0]].values[rows[0]], rows[0]); }
+    } catch (e) { UI.alert(`Problem with ${o.mode === 'calc' ? 'the expression' : 'the search text'}: ${esc(e.message)}`); return false; }
+    let n = 0;
+    const plan = [];
+    for (const ci of o.cols) {
+      const col = t.columns[ci];
+      const newVals = new Array(rows.length);
+      let changed = false, needText = false;
+      rows.forEach((r, i) => {
+        const v = col.values[r]; let nv = v;
+        if (o.mode === 'set') nv = o.val;
+        else if (o.mode === 'find') { if (!DataTable.isMissing(v) && F.test(String(v))) nv = F.replace(String(v)); }
+        else { let x = X(v, r); if (typeof x === 'boolean') x = +x; nv = x === undefined || x === null || (typeof x === 'number' && !isFinite(x)) ? '' : x; }
+        if (nv !== v) { changed = true; n++; }
+        if (col.dataType === 'numeric' && typeof nv === 'string' && nv.trim() !== '' && isNaN(Number(nv.replace(/,/g, '')))) needText = true;
+        newVals[i] = nv;
+      });
+      if (changed) plan.push({ ci, newVals, needText });
+    }
+    if (n) this.pushUndo(t, 'Replace values', plan.map(x => x.ci), plan.some(x => x.needText) || rows.length === t.nrows ? null : rows);
+    for (const { ci, newVals, needText } of plan) {
+      const col = t.columns[ci];
+      if (needText) t.setDataType(ci, 'character');
+      rows.forEach((r, i) => { col.values[r] = t.parseValue(col, newVals[i]); });
+    }
+    if (!n) { status('No cells matched; nothing changed.'); UI.alert('No cells matched, so nothing was changed.'); return false; }
+    t.emit('data');
+    status(`Replaced ${n.toLocaleString()} cell(s) in ${o.cols.length} column(s). Edit ▸ Undo (Ctrl+Z) reverts it.`);
+    return true;
+  },
+  fillToEnd(t, ci) {
+    const sel = t.selectedRows(); const col = t.columns[ci];
+    if (col.formula) return UI.alert('This is a formula column.');
+    const from = sel.length ? sel[sel.length - 1] : 0;
+    const v = col.values[from];
+    const rows = []; for (let r = from + 1; r < t.nrows; r++) rows.push(r);
+    if (!rows.length) return;
+    this.pushUndo(t, 'Fill to end', [ci], rows);
+    rows.forEach(r => { col.values[r] = v; });
+    t.emit('data'); status(`Filled ${rows.length.toLocaleString()} cell(s) of ${col.name} with ${fmt(v)}`);
+  },
+  fillSequence(t, ci) {
+    const col = t.columns[ci];
+    if (col.formula) return UI.alert('This is a formula column.');
+    return UI.prompt('Fill with Sequence', [{ key: 'start', label: 'Start', type: 'number', value: 1 }, { key: 'step', label: 'Step', type: 'number', value: 1 }, { key: 'rep', label: 'Repeat each value (times)', type: 'number', value: 1 }]).then(v => {
+      if (!v) return; const rows = this.targetRows(t);
+      this.pushUndo(t, 'Fill sequence', [ci], rows);
+      if (col.dataType !== 'numeric') t.setDataType(ci, 'numeric');
+      const rep = Math.max(1, Math.round(v.rep || 1));
+      rows.forEach((r, i) => { col.values[r] = (v.start || 0) + Math.floor(i / rep) * (v.step || 0); });
+      t.emit('data');
+    });
   },
   sortBy(t, ci, dir) {
     const col = t.columns[ci];
@@ -383,6 +521,9 @@ const App = {
         { label: 'Close All', action: () => WM.closeAll() },
       ] },
       { label: 'Edit', items: [
+        { label: 'Undo', key: 'Ctrl+Z', disabled: () => !this.undoStack.length, action: () => this.undo() },
+        '-',
+        { label: 'Replace Values...', key: 'Ctrl+F', action: N(t => this.replaceDialog(t)) },
         { label: 'Copy Rows (tab-delimited)', key: 'Ctrl+C', action: N(t => this.copyRows(t)) },
         { label: 'Select All Rows', key: 'Ctrl+A', action: N(t => t.select([...t.rows.keys()])) },
         { label: 'Clear Selection', key: 'Esc', action: N(t => { t.selCols.clear(); t.select([], 'replace'); }) },
@@ -543,7 +684,7 @@ RandomNormal(0, 1)</pre>`, 'Formula Functions');
       const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
       if (e.key === 'Escape') { UI.closeMenus(0); if (this.active) { this.active.selCols.clear(); this.active.select([], 'replace'); } return; }
       if (!mod) return;
-      const map = { t: () => ScriptWin.open(), n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveExcel(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
+      const map = { z: () => this.undo(), f: this.need(t => this.replaceDialog(t)), t: () => ScriptWin.open(), n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveExcel(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
         e: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].exc); s.forEach(r => t.rows[r].exc = on); t.emit('rows'); }),
         h: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].hid); s.forEach(r => t.rows[r].hid = on); t.emit('rows'); }),
         c: this.need(t => { if (!window.getSelection().toString()) this.copyRows(t); }) };

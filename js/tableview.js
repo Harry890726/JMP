@@ -105,7 +105,12 @@ class TableView {
       const th = e.target.closest('th.ch');
       if (th) { e.preventDefault(); const ci = +th.dataset.ci; if (!t.selCols.has(ci)) this.selectCol(ci, {}); UI.menu(App.columnMenu(t, ci), e.clientX, e.clientY); return; }
       const tr = e.target.closest('tr[data-r]');
-      if (tr && +tr.dataset.r < t.nrows) { e.preventDefault(); const r = +tr.dataset.r; if (!t.rows[r].sel) t.select([r]); UI.menu(App.rowsMenu(t), e.clientX, e.clientY); }
+      if (tr && +tr.dataset.r < t.nrows) {
+        e.preventDefault(); const r = +tr.dataset.r; if (!t.rows[r].sel) t.select([r]);
+        const td = e.target.closest('td[data-ci]'); const ci = td ? +td.dataset.ci : null;
+        const items = ci !== null ? [...App.fillMenu(t, ci), '-', ...App.rowsMenu(t)] : App.rowsMenu(t);
+        UI.menu(items, e.clientX, e.clientY);
+      }
     });
   }
   selectCol(ci, e) {
@@ -139,6 +144,7 @@ class TableView {
           // switch to character if user types text into an empty numeric column
           if (col.values.every(v => DataTable.isMissing(v))) { t.setDataType(ci, 'character'); }
         }
+        App.pushUndo(t, `Edit cell ${col.name}[${r + 1}]`, [ci], [r]);
         t.setCell(r, ci, inp.value);
         t.emit('data');
       } else this.renderBody(true);

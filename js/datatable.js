@@ -57,7 +57,16 @@ const Formula = (() => {
     };
     return r => { ctx.r = r; return fn(getter, H); };
   }
-  return { compile, translate };
+  /** compile an expression of the current cell value `x` (columns may also be referenced) */
+  function compileX(t, text) {
+    const js = translate(text.replace(/(^|[^\w:."])x(?![\w"])/g, '$1__x'));
+    const ctx = { r: 0 }; const H = helpers(t, ctx);
+    // eslint-disable-next-line no-new-func
+    const fn = new Function('__c', '__H', '__x', `with(__H){ return (${js}); }`);
+    const getter = name => { const ci = t.colIndex(name); if (ci < 0) throw new Error('Unknown column: ' + name); const v = t.columns[ci].values[ctx.r]; return v === '' ? (t.columns[ci].dataType === 'numeric' ? NaN : '') : v; };
+    return (x, r) => { ctx.r = r; return fn(getter, H, x); };
+  }
+  return { compile, translate, compileX };
 })();
 
 class DataTable {
