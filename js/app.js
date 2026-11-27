@@ -250,11 +250,16 @@ const App = {
   openFiles(files) {
     for (const f of files) {
       const rd = new FileReader();
+      if (/\.(xlsx|xlsm)$/i.test(f.name) && f.size > 8 * 1024 * 1024) { this.openExcelStream(f); continue; }
       if (/\.jmp$/i.test(f.name)) { UI.alert(`<b>${esc(f.name)}</b> is a JMP binary data file, which a web browser cannot read.<br><br>In JMP, open it and choose <b>File ▸ Save As</b> (or <b>File ▸ Export</b>) and save as <b>CSV</b>. Then open the CSV here. Scripts that use <code>Current Data Table()</code> or <code>Data Table("${esc(f.name.replace(/\.jmp$/i, ''))}")</code> will work on it.`, 'Cannot open .jmp file'); continue; }
       rd.onload = () => {
         try {
           if (/\.jsl$/i.test(f.name)) { ScriptWin.open(f.name, rd.result); return; }
-          if (/\.(xlsx|xlsm|xls|xlsb|ods)$/i.test(f.name)) { this.openExcel(f.name, rd.result); return; }
+          if (/\.(xlsx|xlsm|xls|xlsb|ods)$/i.test(f.name)) {
+            try { this.openExcel(f.name, rd.result); }
+            catch (e) { if (/\.(xlsx|xlsm)$/i.test(f.name) && typeof fflate !== 'undefined') { console.warn(e); this.openExcelStream(f); } else throw e; }
+            return;
+          }
           const name = f.name.replace(/\.(csv|tsv|txt|json)$/i, '');
           if (/\.json$/i.test(f.name)) {
             const o = JSON.parse(rd.result);
@@ -277,8 +282,43 @@ const App = {
     const notes = tables.map(t => t.notes).filter(Boolean);
     if (notes.length) UI.alert(`Some Excel formulas could not be translated, so those columns contain values only:<br><br><span class="small">${esc(notes.join(' '))}</span>`, 'Excel formulas');
   },
-  saveExcel(t) { Excel.save([t], `${t.name}.xlsx`); },
-  saveCSV(t) { download(`${t.name}.csv`, t.toCSV(), 'text/csv'); },
+  /** Large .xlsx: stream-parse with a progress indicator */
+  async openExcelStream(f) {
+    const prog = el(`<div class="progress"><div class="pg-t">Reading <b>${esc(f.name)}</b> (${(f.size / 1048576).toFixed(0)} MB)…</div><div class="pg-bar"><i></i></div><div class="pg-s small mut">Unzipping and reading cells</div></div>`);
+    document.body.appendChild(prog);
+    const bar = $('.pg-bar i', prog), sub = $('.pg-s', prog);
+    const t0 = performance.now();
+    try {
+      const sheets = await XlsxStream.read(f, x => { bar.style.width = (x * 100).toFixed(1) + '%'; status(`Reading ${f.name}: ${(x * 100).toFixed(0)}%`); });
+      sub.textContent = 'Building data table…'; await new Promise(r => setTimeout(r, 0));
+      const base = f.name.replace(/\.[^.]+$/, '');
+      const nonEmpty = sheets.filter(s => s.store.maxCol >= 0);
+      if (!nonEmpty.length) throw new Error('The workbook has no data.');
+      const tables = nonEmpty.map(s => { const t = XlsxStream.toTable(s, nonEmpty.length === 1 ? base : `${base} - ${s.name}`); t.sourceFile = base; t.sheetName = s.name; return t; });
+      prog.remove();
+      tables.forEach(t => this.openTable(t));
+      status(`Opened ${f.name}: ${tables.map(t => `${t.nrows.toLocaleString()} rows × ${t.columns.length} cols`).join('; ')} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+      const notes = tables.map(t => t.notes).filter(Boolean);
+      if (notes.length) UI.alert(`Some Excel formulas could not be translated, so those columns contain values only:<br><br><span class="small">${esc(notes.join(' '))}</span>`, 'Excel formulas');
+    } catch (e) {
+      prog.remove(); console.error(e);
+      UI.alert(`Could not open ${esc(f.name)}: ${esc(e.message)}<br><br><span class="small mut">If this keeps happening, save the sheet as CSV in Excel and open the CSV.</span>`);
+    }
+  },
+  saveExcel(t) {
+    const cells = t.nrows * t.columns.length;
+    if (cells > 4e6 || t.nrows > 1048575) {
+      return UI.dialog({ title: 'Large table', content: `<div class="msg">This table has ${t.nrows.toLocaleString()} rows × ${t.columns.length} columns. ${t.nrows > 1048575 ? 'That is more rows than an Excel sheet can hold (1,048,576).' : 'Writing it as .xlsx in the browser may run out of memory.'}<br><br>Save as CSV instead? CSV opens in Excel and JMP and is much faster for large data.</div>`,
+        buttons: [{ label: 'Save as CSV', primary: true, value: 'csv' }, ...(t.nrows <= 1048575 ? [{ label: 'Try .xlsx anyway', value: 'xlsx' }] : []), { label: 'Cancel', value: null }] })
+        .then(v => { if (v === 'csv') this.saveCSV(t); else if (v === 'xlsx') this.trySaveExcel([t], `${t.name}.xlsx`); });
+    }
+    this.trySaveExcel([t], `${t.name}.xlsx`);
+  },
+  trySaveExcel(tables, name) {
+    try { Excel.save(tables, name); }
+    catch (e) { console.error(e); UI.alert(`Could not write ${esc(name)} (${esc(e.message)}). The table is probably too large for an .xlsx written in the browser; use Save As CSV instead.`); }
+  },
+  saveCSV(t) { download(`${t.name}.csv`, t.nrows > 100000 ? t.toCSVBlob() : t.toCSV(), 'text/csv'); },
   saveProject() {
     if (!this.tables.length) return UI.alert('Nothing to save.');
     download('project.statlab.json', JSON.stringify({ app: 'StatLab Explorer', version: 1, tables: this.tables.map(t => t.toJSON()) }), 'application/json');
@@ -335,7 +375,7 @@ const App = {
         '-',
         { label: 'Save As Excel (.xlsx)...', key: 'Ctrl+S', action: N(t => this.saveExcel(t)) },
         { label: 'Save As CSV...', action: N(t => this.saveCSV(t)) },
-        { label: 'Save All Tables as Excel Workbook...', action: () => this.tables.length ? Excel.save(this.tables, 'StatLab Tables.xlsx') : UI.alert('No data tables are open.') },
+        { label: 'Save All Tables as Excel Workbook...', action: () => this.tables.length ? this.trySaveExcel(this.tables, 'StatLab Tables.xlsx') : UI.alert('No data tables are open.') },
         { label: 'Save Project (all tables)...', action: () => this.saveProject() },
         { label: 'Export Report as HTML', action: () => this.exportReport() },
         '-',

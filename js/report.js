@@ -65,6 +65,7 @@ class Report {
     try { html = this.platform.render(ctx); }
     catch (e) { console.error(e); html = `<div class="err">Error in analysis: ${esc(e.message)}</div>`; }
     this.menus = ctx.menus;
+    if (this.t.nrows > POINT_LIMIT && /class="pt/.test(html)) html = `<div class="note small">Large table: graphs show a sample of about ${POINT_LIMIT.toLocaleString()} of ${this.t.nrows.toLocaleString()} points (selected rows always shown). All statistics use every row.</div>` + html;
     this.body.innerHTML = html;
     this.body.scrollTop = st; this.body.scrollLeft = sl;
     if (this.platform.after) this.platform.after(this);

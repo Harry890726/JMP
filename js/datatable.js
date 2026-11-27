@@ -224,6 +224,17 @@ class DataTable {
     for (let r = 0; r < this.nrows; r++) lines.push(this.columns.map(c => q(c.values[r])).join(sep));
     return lines.join('\n');
   }
+  /** CSV as a Blob built in chunks (no single giant string) */
+  toCSVBlob(sep = ',') {
+    const q = v => { const s = DataTable.isMissing(v) ? '' : String(v); return /[",\n\t;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const parts = [this.columns.map(c => q(c.name)).join(sep) + '\n'];
+    for (let r0 = 0; r0 < this.nrows; r0 += 20000) {
+      const lines = [];
+      for (let r = r0; r < Math.min(this.nrows, r0 + 20000); r++) lines.push(this.columns.map(c => q(c.values[r])).join(sep));
+      parts.push(lines.join('\n') + '\n');
+    }
+    return new Blob(parts, { type: 'text/csv' });
+  }
   toJSON() {
     return { name: this.name, columns: this.columns.map(c => ({ name: c.name, dataType: c.dataType, modelingType: c.modelingType, formula: c.formula, levelOrder: c.levelOrder, values: c.values.map(v => typeof v === 'number' && isNaN(v) ? null : v) })), rows: this.rows };
   }

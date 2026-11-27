@@ -161,9 +161,10 @@ const Excel = (() => {
     const wb = XLSX.read(buf, { type: 'array', cellDates: true, cellFormula: true });
     const base = fileName.replace(/\.[^.]+$/, '');
     const out = [];
-    const sheets = wb.SheetNames.filter(sn => wb.Sheets[sn]['!ref']);
+    const sheets = wb.SheetNames.filter(sn => !wb.Sheets[sn] || wb.Sheets[sn]['!ref']);
     for (const sn of sheets) {
       const ws = wb.Sheets[sn];
+      if (!ws || !ws['!ref']) throw new Error(`Sheet "${sn}" could not be read`);
       const rng = XLSX.utils.decode_range(ws['!ref']);
       const all = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '', blankrows: true });
       const keep = all.map((r, i) => i).filter(i => all[i].some(c => c !== null && c !== undefined && String(c).trim() !== ''));

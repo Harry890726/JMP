@@ -1,6 +1,7 @@
 'use strict';
 /* SVG plotting primitives: scales, axes, frames, markers. */
 
+const POINT_LIMIT = 40000;
 const Plot = (() => {
   function niceNum(x, round) {
     if (!(x > 0)) return 1;
@@ -73,6 +74,8 @@ const Plot = (() => {
   function pt(t, r, x, y, opt = {}) {
     const st = t.rows[r];
     if (st.hid || !isFinite(x) || !isFinite(y)) return '';
+    // very large tables: draw a fixed pseudo-random sample of points (statistics still use all rows); selected rows always show
+    if (t.nrows > POINT_LIMIT && !st.sel && hash01(r) * t.nrows > POINT_LIMIT) return '';
     const color = opt.color || st.color || '#2b2b2b';
     const rad = (opt.r || 2.7) + (st.sel ? 1.1 : 0);
     const dim = t.selCount && !st.sel ? ' dim' : '';

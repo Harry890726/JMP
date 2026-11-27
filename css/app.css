@@ -316,3 +316,6 @@ svg.plot { display: block; overflow: visible; user-select: none; font-family: va
 .sw-log { flex: 2; overflow: auto; padding: 6px 10px; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #fcfcfd; min-height: 80px; }
 .sw-l { white-space: pre-wrap; word-break: break-word; }
 .sw-l.cmd { color: #8a95a5; } .sw-l.ok { color: #2e7d32; } .sw-l.err { color: #c62828; font-weight: 600; } .sw-l.warn { color: #b45f06; } .sw-l.info { color: #2f5f9e; }
+.progress { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 60000; background: #fff; border: 1px solid #8f9bab; border-radius: 6px; box-shadow: 0 12px 40px rgba(0,0,0,.3); padding: 16px 18px; width: min(420px, 90vw); display: flex; flex-direction: column; gap: 8px; }
+.pg-bar { height: 8px; background: #e3e8ef; border-radius: 4px; overflow: hidden; }
+.pg-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
