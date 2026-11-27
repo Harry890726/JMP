@@ -304,3 +304,15 @@ svg.plot { display: block; overflow: visible; user-select: none; font-family: va
   .win-body { overflow: visible; }
 }
 #exporttext { width: 100%; font: 12px ui-monospace, Consolas, monospace; border: 1px solid #aab4c2; border-radius: 3px; padding: 6px; resize: vertical; }
+
+/* script window */
+.sw { display: flex; flex-direction: column; height: 100%; }
+.sw-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--line2); background: #f6f7f9; flex-wrap: wrap; }
+.sw-sp { flex: 1; }
+.sw-ed { flex: 3; display: flex; min-height: 120px; border-bottom: 1px solid var(--line); }
+.sw-gut { margin: 0; padding: 8px 6px; background: #f1f3f6; color: #8a95a5; text-align: right; font: 12.5px/1.5 ui-monospace, Consolas, monospace; overflow: hidden; user-select: none; min-width: 38px; border-right: 1px solid var(--line2); }
+.sw-text { flex: 1; border: none; outline: none; resize: none; padding: 8px 10px; font: 12.5px/1.5 ui-monospace, Consolas, "Noto Sans Mono CJK TC", monospace; color: #1d2330; background: #fff; white-space: pre; tab-size: 4; }
+.sw-logh { display: flex; align-items: center; justify-content: space-between; padding: 3px 8px; font-weight: 600; background: linear-gradient(var(--olh1), var(--olh2)); border-bottom: 1px solid var(--line2); }
+.sw-log { flex: 2; overflow: auto; padding: 6px 10px; font: 12px/1.45 ui-monospace, Consolas, monospace; background: #fcfcfd; min-height: 80px; }
+.sw-l { white-space: pre-wrap; word-break: break-word; }
+.sw-l.cmd { color: #8a95a5; } .sw-l.ok { color: #2e7d32; } .sw-l.err { color: #c62828; font-weight: 600; } .sw-l.warn { color: #b45f06; } .sw-l.info { color: #2f5f9e; }

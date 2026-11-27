@@ -250,8 +250,10 @@ const App = {
   openFiles(files) {
     for (const f of files) {
       const rd = new FileReader();
+      if (/\.jmp$/i.test(f.name)) { UI.alert(`<b>${esc(f.name)}</b> is a JMP binary data file, which a web browser cannot read.<br><br>In JMP, open it and choose <b>File ▸ Save As</b> (or <b>File ▸ Export</b>) and save as <b>CSV</b>. Then open the CSV here. Scripts that use <code>Current Data Table()</code> or <code>Data Table("${esc(f.name.replace(/\.jmp$/i, ''))}")</code> will work on it.`, 'Cannot open .jmp file'); continue; }
       rd.onload = () => {
         try {
+          if (/\.jsl$/i.test(f.name)) { ScriptWin.open(f.name, rd.result); return; }
           const name = f.name.replace(/\.(csv|tsv|txt|json)$/i, '');
           if (/\.json$/i.test(f.name)) {
             const o = JSON.parse(rd.result);
@@ -313,6 +315,7 @@ const App = {
       { label: 'File', items: [
         { label: 'New Data Table', key: 'Ctrl+N', action: () => this.newTable() },
         { label: 'Open...', key: 'Ctrl+O', action: () => $('#fileinput').click() },
+        { label: 'New Script', key: 'Ctrl+T', action: () => ScriptWin.open() },
         { label: 'Sample Data', submenu: Samples.names.map(n => ({ label: n, action: () => this.openSample(n) })) },
         { label: 'New Table from Clipboard', action: () => this.pasteTable() },
         '-',
@@ -385,6 +388,7 @@ const App = {
       { label: 'Help', items: [
         { label: 'Getting Started', action: () => this.home() },
         { label: 'Formula Functions', action: () => this.help('formula') },
+        { label: 'Scripting (JSL) Support', action: () => this.help('jsl') },
         { label: 'Keyboard Shortcuts', action: () => this.help('keys') },
         { label: 'About StatLab Explorer', action: () => this.help('about') },
       ] },
@@ -430,6 +434,7 @@ const App = {
         <div><h3>Start</h3>
           <button class="hp-btn" data-h="new">${TB.new}<span>New Data Table</span></button>
           <button class="hp-btn" data-h="open">${TB.open}<span>Open CSV / JSON file…</span></button>
+          <button class="hp-btn" data-h="script">${TB.fm}<span>New Script (JSL)</span></button>
           <button class="hp-btn" data-h="paste">${TB.tab}<span>New Table from Clipboard</span></button>
           <h3>Sample Data</h3>
           ${Samples.names.map(n => `<button class="hp-btn sample" data-s="${esc(n)}">${ICONS.table}<span>${esc(n)}</span></button>`).join('')}
@@ -449,11 +454,18 @@ const App = {
       else if (b.dataset.h === 'new') this.newTable();
       else if (b.dataset.h === 'open') $('#fileinput').click();
       else if (b.dataset.h === 'paste') this.pasteTable();
+      else if (b.dataset.h === 'script') ScriptWin.open();
     });
   },
   help(k) {
     if (k === 'about') return UI.alert(`<div style="display:flex;gap:14px;align-items:center">${LOGO_BIG}<div><b>StatLab Explorer</b><br>An open, browser-based interactive statistics workbench.<br><span class="small mut">Independent project; not affiliated with or endorsed by any commercial statistics software vendor.</span></div></div>`, 'About');
     if (k === 'keys') return UI.alert(`<table class="rt kv">${[['Ctrl+N', 'New data table'], ['Ctrl+O', 'Open file'], ['Ctrl+S', 'Save current table as CSV'], ['Ctrl+A', 'Select all rows'], ['Ctrl+E', 'Exclude/unexclude selected rows'], ['Ctrl+H', 'Hide/unhide selected rows'], ['Ctrl+G', 'Graph Builder'], ['Ctrl+W', 'Close window'], ['Esc', 'Clear selection / close menus'], ['Shift+click', 'Extend selection'], ['Ctrl+click', 'Toggle selection'], ['Drag on plot', 'Brush-select points'], ['Double-click cell', 'Edit value'], ['Double-click column header', 'Column Info']].map(([a, b]) => `<tr><td><b>${a}</b></td><td>${b}</td></tr>`).join('')}</table>`, 'Keyboard Shortcuts');
+    if (k === 'jsl') return UI.alert(`<div class="msg small" style="max-width:640px">Open a <b>.jsl</b> file (File ▸ Open) or File ▸ New Script, then click <b>Run Script</b> (Ctrl+R). Run the script after opening your data: <code>Current Data Table()</code> is the table you used last.<br><br>
+      <b>Data table messages</b> (<code>dt &lt;&lt; …</code>): Stack, Sort, Subset, Summary, Split, Transpose, Join, Concatenate, New Column (Formula, Set Values), Add Rows, Delete Rows, Delete Columns, Select Where, Get Rows Where, Select All Rows, Clear Select, Invert Row Selection, Exclude, Hide, Label, Clear Row States, Color By Column, Set Name, Get Name, Get Column Names, Save.<br>
+      <b>Columns</b> (<code>col &lt;&lt; …</code>): Set Name, Set Modeling Type, Set Data Type, Set Formula, Get Values, Set Values.<br>
+      <b>Platforms</b>: Distribution, Bivariate, Oneway, Contingency, Logistic, Fit Model, Graph Builder, Multivariate, Principal Components, Scatterplot Matrix, K Means Cluster, Hierarchical Cluster, Control Chart, Control Chart Builder, Pareto Plot, Process Capability, Tabulate — with their common options (Fit Line, Means/Anova, Normal Quantile Plot …).<br>
+      <b>Language</b>: variables, = += ++, If, For, While, For Each Row, Try, lists { }, matrices [ ], :col, dt:col, :col[i], Column(), Data Table(), Current Data Table(), New Table(), Open() of an already-open table, Print, Show, Write, N Rows, N Items, Sum, Mean, Min, Max, Round, Concat, Substr, Word, Contains, Insert Into …<br><br>
+      Not supported: .jmp binary files (export to CSV first), reading files from disk paths, dialogs (New Window, Dialog), databases, custom functions.</div>`, 'Scripting (JSL) Support');
     if (k === 'formula') return UI.alert(`<div class="small">Reference columns with <code>:name</code> or <code>:"name with spaces"</code>. Operators: + - * / ^ == != &lt; &gt; &amp; |</div><pre class="small">If(:age &gt; 14, "Teen", "Child")
 :weight / (:height ^ 2) * 703
 Log(:Spend)
@@ -475,7 +487,7 @@ RandomNormal(0, 1)</pre>`, 'Formula Functions');
       const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
       if (e.key === 'Escape') { UI.closeMenus(0); if (this.active) { this.active.selCols.clear(); this.active.select([], 'replace'); } return; }
       if (!mod) return;
-      const map = { n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveCSV(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
+      const map = { t: () => ScriptWin.open(), n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveCSV(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
         e: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].exc); s.forEach(r => t.rows[r].exc = on); t.emit('rows'); }),
         h: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].hid); s.forEach(r => t.rows[r].hid = on); t.emit('rows'); }),
         c: this.need(t => { if (!window.getSelection().toString()) this.copyRows(t); }) };
