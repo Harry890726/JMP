@@ -254,6 +254,7 @@ const App = {
       rd.onload = () => {
         try {
           if (/\.jsl$/i.test(f.name)) { ScriptWin.open(f.name, rd.result); return; }
+          if (/\.(xlsx|xlsm|xls|xlsb|ods)$/i.test(f.name)) { this.openExcel(f.name, rd.result); return; }
           const name = f.name.replace(/\.(csv|tsv|txt|json)$/i, '');
           if (/\.json$/i.test(f.name)) {
             const o = JSON.parse(rd.result);
@@ -262,8 +263,22 @@ const App = {
           } else this.openTable(DataTable.fromCSV(rd.result, name));
         } catch (e) { UI.alert(`Could not open ${esc(f.name)}: ${esc(e.message)}`); }
       };
-      rd.readAsText(f);
+      if (/\.(xlsx|xlsm|xls|xlsb|ods)$/i.test(f.name)) rd.readAsArrayBuffer(f); else rd.readAsText(f);
     }
+  },
+  /** Excel workbook: every non-empty sheet opens as a data table */
+  openExcel(fileName, buf) {
+    if (typeof XLSX === 'undefined') return UI.alert('The Excel reader could not be loaded (it needs an internet connection the first time). Save the sheet as CSV and open that instead.', 'Excel reader unavailable');
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const base = fileName.replace(/\.[^.]+$/, '');
+    const sheets = wb.SheetNames.map(sn => ({ sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '', blankrows: false }) })).filter(s => s.rows.length);
+    if (!sheets.length) return UI.alert(`${esc(fileName)} has no data.`);
+    for (const s of sheets) {
+      const t = DataTable.fromRows(s.rows, sheets.length === 1 ? base : `${base} - ${s.sn}`);
+      t.sourceFile = base; t.sheetName = s.sn;
+      this.openTable(t);
+    }
+    status(`Opened ${fileName}: ${sheets.length} sheet(s)`);
   },
   saveCSV(t) { download(`${t.name}.csv`, t.toCSV(), 'text/csv'); },
   saveProject() {
@@ -433,7 +448,7 @@ const App = {
       <div class="hp-cols">
         <div><h3>Start</h3>
           <button class="hp-btn" data-h="new">${TB.new}<span>New Data Table</span></button>
-          <button class="hp-btn" data-h="open">${TB.open}<span>Open CSV / JSON file…</span></button>
+          <button class="hp-btn" data-h="open">${TB.open}<span>Open CSV / Excel / JSON file…</span></button>
           <button class="hp-btn" data-h="script">${TB.fm}<span>New Script (JSL)</span></button>
           <button class="hp-btn" data-h="paste">${TB.tab}<span>New Table from Clipboard</span></button>
           <h3>Sample Data</h3>

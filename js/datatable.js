@@ -257,17 +257,31 @@ class DataTable {
     return rows.filter(r => r.some(c => c.trim() !== ''));
   }
   static fromCSV(text, name = 'Imported') {
-    const rows = DataTable.parseDelimited(text);
+    return DataTable.fromRows(DataTable.parseDelimited(text), name);
+  }
+  /** Build a table from a header row + body rows. Cells may be strings, numbers, booleans or Dates. */
+  static fromRows(rows, name = 'Imported') {
     const t = new DataTable(name);
+    rows = rows.filter(r => r && r.some(c => c !== null && c !== undefined && String(c).trim() !== ''));
     if (!rows.length) return t;
-    const header = rows[0], body = rows.slice(1);
+    const pad = n => String(n).padStart(2, '0');
+    const cell = v => {
+      if (v === null || v === undefined) return '';
+      if (v instanceof Date) return isNaN(v) ? '' : `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` + (v.getHours() || v.getMinutes() || v.getSeconds() ? ` ${pad(v.getHours())}:${pad(v.getMinutes())}:${pad(v.getSeconds())}` : '');
+      if (typeof v === 'boolean') return v ? 1 : 0;
+      return v;
+    };
+    const header = rows[0].map(cell), body = rows.slice(1).map(r => r.map(cell));
     const ncol = Math.max(...rows.map(r => r.length));
+    const isMiss = v => v === '' || v === '.' || v === 'NA' || (typeof v === 'number' && isNaN(v));
+    const asNum = v => typeof v === 'number' ? v : Number(String(v).trim().replace(/,/g, ''));
     for (let c = 0; c < ncol; c++) {
-      const raw = body.map(r => (r[c] ?? '').trim());
-      const nonEmpty = raw.filter(v => v !== '' && v !== '.' && v !== 'NA');
-      const numeric = nonEmpty.length > 0 && nonEmpty.every(v => !isNaN(Number(v.replace(/,/g, ''))));
-      const values = numeric ? raw.map(v => (v === '' || v === '.' || v === 'NA') ? NaN : Number(v.replace(/,/g, ''))) : raw;
-      t.columns.push({ name: t.uniqueName((header[c] || `Column ${c + 1}`).trim() || `Column ${c + 1}`), dataType: numeric ? 'numeric' : 'character', modelingType: numeric ? 'continuous' : 'nominal', values, formula: null });
+      const raw = body.map(r => { const v = r[c] ?? ''; return typeof v === 'string' ? v.trim() : v; });
+      const nonEmpty = raw.filter(v => !isMiss(v));
+      const numeric = nonEmpty.length > 0 && nonEmpty.every(v => !isNaN(asNum(v)));
+      const values = numeric ? raw.map(v => isMiss(v) ? NaN : asNum(v)) : raw.map(v => isMiss(v) && v !== '.' && v !== 'NA' ? '' : String(v));
+      const hn = String(header[c] ?? '').trim() || `Column ${c + 1}`;
+      t.columns.push({ name: t.uniqueName(hn), dataType: numeric ? 'numeric' : 'character', modelingType: numeric ? 'continuous' : 'nominal', values, formula: null });
     }
     t.rows = body.map(DataTable.newRow);
     return t;

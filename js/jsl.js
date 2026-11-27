@@ -419,8 +419,8 @@ const JSL = (() => {
     currentdatatable(args) { if (args.length) { const t = this.table(this.ev(args[0])); App.setActive(t); const w = WM.wins.find(w => w.kind === 'table' && w.table === t); if (w) w.focus(); return t; } return this.cur(); },
     datatable(args) { const v = this.deref(this.ev(args[0])); if (typeof v === 'number') { const t = App.tables[v - 1]; if (!t) throw new Error(`No data table number ${v}`); return t; } return this.table(v); },
     open(args) {
-      const p = this.str(this.ev(args[0])); const base = p.split(/[\\/]/).pop().replace(/\.(jmp|csv|txt|tsv|json|xlsx?)$/i, '');
-      const t = App.tables.find(x => colKey(x.name) === colKey(base));
+      const p = this.str(this.ev(args[0])); const base = p.split(/[\\/]/).pop().replace(/\.(jmp|csv|txt|tsv|json|xlsx|xlsm|xls|xlsb|ods)$/i, '');
+      const t = App.tables.find(x => colKey(x.name) === colKey(base)) || App.tables.find(x => x.sourceFile && colKey(x.sourceFile) === colKey(base));
       if (t) { App.setActive(t); return t; }
       throw new Error(`Open("${p}"): the browser cannot read files from your disk by path. Open the file with File ▸ Open first (export .jmp files from JMP as CSV), then run the script — Open() will use the already-open table named "${base}".`);
     },
