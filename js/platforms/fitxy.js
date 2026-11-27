@@ -118,7 +118,7 @@ Platforms.fitxy = {
     if (ctx.opt(K('hb'))) {
       const hx = Plot.frame({ w: 440, h: 60, x: { ticks: p.xt }, y: { min: 0, max: 1 }, noYAxis: true, noXAxis: true, ml: p.L, mt: 2, mb: 2, grid: false });
       const { edges: ex } = Plot.bins(xs); const cx = ex.slice(0, -1).map(() => []); rows.forEach((r, i) => cx[Math.min(cx.length - 1, Math.floor((xs[i] - ex[0]) / (ex[1] - ex[0])))].push(r));
-      const mxc = Math.max(...cx.map(c => c.length)); cx.forEach((c, k) => c.length && hx.add(Plot.bar(t, hx.X(ex[k]), hx.B, hx.X(ex[k + 1]), hx.B - (hx.B - hx.T) * c.length / mxc, c)));
+      const mxc = S.max(cx.map(c => c.length)); cx.forEach((c, k) => c.length && hx.add(Plot.bar(t, hx.X(ex[k]), hx.B, hx.X(ex[k + 1]), hx.B - (hx.B - hx.T) * c.length / mxc, c)));
       plot = `<div>${hx.svg()}</div>` + plot;
     }
     return ctx.outline(`Bivariate Fit of ${esc(yn)} By ${esc(xn)}${this.by(ctx)}`, `<div class="gwrap">${plot}</div>${reports}`, { menu, key: K('biv') });
@@ -152,7 +152,7 @@ Platforms.fitxy = {
       const m = S.mean(g.vals), sd = S.sd(g.vals), ni = g.vals.length;
       if (o('box')) p.add(Plot.boxPlot(p, t, g.rows, g.vals, { vertical: true, center: cx, width: Math.min(40, p.xb * 0.35), outliers: false, meanDiamond: false, color: '#555' }));
       if (o('diam') && av) {
-        const hw = p.xb * 0.42 * ni / Math.max(...groups.map(x => x.vals.length));
+        const hw = p.xb * 0.42 * ni / S.max(groups.map(x => x.vals.length));
         const ci = S.tInv(0.975, av.dfw) * Math.sqrt(av.msw / ni);
         p.add(`<polygon class="mdiam" points="${cx - hw},${p.Y(m)} ${cx},${p.Y(m + ci)} ${cx + hw},${p.Y(m)} ${cx},${p.Y(m - ci)}"/><line class="mdl" x1="${cx - hw}" x2="${cx + hw}" y1="${p.Y(m)}" y2="${p.Y(m)}"/>`);
       }

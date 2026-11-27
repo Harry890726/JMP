@@ -116,7 +116,7 @@ class Report {
         const rows = [];
         svg.querySelectorAll('circle[data-rows]').forEach(c => {
           const cx = +c.getAttribute('cx'), cy = +c.getAttribute('cy');
-          if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) rows.push(...c.dataset.rows.split(',').map(Number));
+          if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) for (const x of c.dataset.rows.split(',')) rows.push(Number(x));
         });
         this._brushed = true;
         setTimeout(() => { this._brushed = false; }, 50);

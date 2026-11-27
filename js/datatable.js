@@ -15,7 +15,7 @@ const Formula = (() => {
       Power: Math.pow, Sin: Math.sin, Cos: Math.cos, Tan: Math.tan, Modulo: (a, b) => a % b,
       Row: () => ctx.r + 1, NRow: () => t.nrows, Pi: () => Math.PI,
       Mean: (...a) => S.mean(a.filter(isNum)), Sum: (...a) => S.sum(a.filter(isNum)),
-      Min: (...a) => Math.min(...a.filter(isNum)), Max: (...a) => Math.max(...a.filter(isNum)),
+      Min: (...a) => S.min(a.filter(isNum)), Max: (...a) => S.max(a.filter(isNum)),
       IsMissing: v => v === '' || v === null || v === undefined || (typeof v === 'number' && isNaN(v)),
       RandomNormal: (m = 0, s = 1) => m + s * Math.sqrt(-2 * Math.log(Math.random() || 1e-12)) * Math.cos(2 * Math.PI * Math.random()),
       RandomUniform: (a = 0, b = 1) => a + (b - a) * Math.random(),
@@ -115,8 +115,8 @@ class DataTable {
   addRows(n, at) {
     if (at === undefined || at >= this.nrows) { this.addRowsRaw(n); }
     else {
-      this.rows.splice(at, 0, ...Array.from({ length: n }, DataTable.newRow));
-      for (const c of this.columns) c.values.splice(at, 0, ...Array.from({ length: n }, () => DataTable.missing(c.dataType)));
+      this.rows = [...this.rows.slice(0, at), ...Array.from({ length: n }, DataTable.newRow), ...this.rows.slice(at)];
+      for (const c of this.columns) c.values = [...c.values.slice(0, at), ...Array.from({ length: n }, () => DataTable.missing(c.dataType)), ...c.values.slice(at)];
     }
   }
   deleteRows(idx) {
@@ -272,7 +272,7 @@ class DataTable {
       return v;
     };
     const header = rows[0].map(cell), body = rows.slice(1).map(r => r.map(cell));
-    const ncol = Math.max(...rows.map(r => r.length));
+    let ncol = 0; for (const r of rows) if (r.length > ncol) ncol = r.length;
     const isMiss = v => v === '' || v === '.' || v === 'NA' || (typeof v === 'number' && isNaN(v));
     const asNum = v => typeof v === 'number' ? v : Number(String(v).trim().replace(/,/g, ''));
     for (let c = 0; c < ncol; c++) {

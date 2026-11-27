@@ -175,7 +175,7 @@ Platforms.graphbuilder = {
         }
         else if (el === 'heatmap' && gi === 0 && xCat && yCat) {
           const cnt = new Map(); rows.forEach(r => { const k = String(val(o.x, r)) + '|' + String(val(o.y, r)); if (!cnt.has(k)) cnt.set(k, []); cnt.get(k).push(r); });
-          const mx = Math.max(...[...cnt.values()].map(v => v.length));
+          const mx = S.max([...cnt.values()].map(v => v.length));
           p.xlev.forEach((xl, i) => p.ylev.forEach((yl, j) => { const rs = cnt.get(xl + '|' + yl) || []; if (!rs.length) return; const a = rs.length / mx; p.add(`<rect class="bar" x="${p.L + p.xb * i}" y="${p.B - p.yb * (j + 1)}" width="${p.xb}" height="${p.yb}" fill="rgba(217,65,43,${0.12 + a * 0.85})" data-rows="${rs.join(',')}"/><text class="tl" x="${p.L + p.xb * (i + 0.5)}" y="${p.B - p.yb * (j + 0.5) + 4}" text-anchor="middle">${rs.length}</text>`); }));
         }
       });

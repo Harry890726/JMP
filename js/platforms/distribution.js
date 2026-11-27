@@ -60,7 +60,7 @@ Platforms.distribution = {
     if (ctx.opt(K('hist'), true)) {
       const counts = edges.slice(0, -1).map(() => []);
       rows.forEach((r, i) => { let k = Math.floor((vals[i] - edges[0]) / bw + 1e-9); k = Math.min(Math.max(k, 0), counts.length - 1); counts[k].push(r); });
-      const maxc = Math.max(...counts.map(c => c.length));
+      const maxc = S.max(counts.map(c => c.length));
       let ymax = maxc * 1.08;
       if (ctx.opt(K('fitn'))) ymax = Math.max(ymax, n * bw * S.normPdf(m, m, sd) * 1.05);
       const p = Plot.frame({ w: W, h: 230, x: xr, y: { min: 0, max: ymax, pad: false }, yLabel: ctx.opt(K('count'), true) ? 'Count' : '', ml: 58 });
@@ -81,7 +81,7 @@ Platforms.distribution = {
     if (ctx.opt(K('nq'))) {
       const order = rows.map((r, i) => i).sort((a, b) => vals[a] - vals[b]);
       const q = order.map((_, k) => S.normInv((k + 1) / (n + 1)));
-      const p = Plot.frame({ w: W, h: 170, x: xr, y: { min: Math.min(...q), max: Math.max(...q) }, yLabel: 'Normal Quantile', ml: 58 });
+      const p = Plot.frame({ w: W, h: 170, x: xr, y: { min: S.min(q), max: S.max(q) }, yLabel: 'Normal Quantile', ml: 58 });
       p.add(`<line class="fit" style="stroke:#d9412b" x1="${p.X(m + sd * p.yt.lo)}" y1="${p.Y(p.yt.lo)}" x2="${p.X(m + sd * p.yt.hi)}" y2="${p.Y(p.yt.hi)}"/>`);
       order.forEach((i, k) => p.add(Plot.pt(t, rows[i], p.X(vals[i]), p.Y(q[k]))));
       html += ctx.outline('Normal Quantile Plot', `<div class="gwrap">${p.svg()}</div>`, { key: 'nq' + ci });
