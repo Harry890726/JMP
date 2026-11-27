@@ -303,3 +303,4 @@ svg.plot { display: block; overflow: visible; user-select: none; font-family: va
   html, body, #app, #main, #workspace { overflow: visible; height: auto; background: #fff; }
   .win-body { overflow: visible; }
 }
+#exporttext { width: 100%; font: 12px ui-monospace, Consolas, monospace; border: 1px solid #aab4c2; border-radius: 3px; padding: 6px; resize: vertical; }

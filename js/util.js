@@ -65,14 +65,26 @@ function rng(seed = 1) {
 const PALETTE = ['#2f6bc6', '#d9412b', '#2e9a3a', '#f39c12', '#8e44ad', '#16a2b8', '#d6487e', '#7a9a01', '#a0522d', '#34495e',
   '#5dade2', '#e74c3c', '#58d68d', '#f5b041', '#af7ac5'];
 
+/** Export text: tries a direct download and also shows the content with a Copy button
+    (some hosts, e.g. sandboxed viewers, block downloads). */
 function download(name, text, mime = 'text/plain') {
-  const blob = new Blob([text], { type: mime });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  try {
+    const blob = new Blob([text], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  } catch (e) { /* ignore */ }
+  if (typeof UI === 'undefined') return;
+  const big = text.length > 400000;
+  const content = el(`<div class="form"><div class="small">If the file did not download, copy the content below and save it as <b>${esc(name)}</b>.</div>
+    <textarea id="exporttext" rows="14" spellcheck="false" readonly>${big ? '' : esc(text)}</textarea><div class="small mut exportmsg"></div></div>`);
+  if (big) content.querySelector('textarea').value = text;
+  UI.dialog({ title: 'Export ' + name, width: 620, content, buttons: [{ label: 'Copy', primary: true, onClick: b => {
+    const ta = b.querySelector('textarea'), msg = b.querySelector('.exportmsg');
+    const sel = () => { ta.focus(); ta.select(); msg.textContent = 'Text selected. Press Ctrl+C (⌘C) to copy.'; };
+    try { navigator.clipboard.writeText(text).then(() => { msg.textContent = 'Copied to clipboard.'; }, sel); } catch (e) { sel(); }
+    return false; } }, { label: 'Close', value: null }] });
 }
 
 let _uid = 0;

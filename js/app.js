@@ -319,7 +319,6 @@ const App = {
         { label: 'Save As CSV...', key: 'Ctrl+S', action: N(t => this.saveCSV(t)) },
         { label: 'Save Project (all tables)...', action: () => this.saveProject() },
         { label: 'Export Report as HTML', action: () => this.exportReport() },
-        { label: 'Print Window', key: 'Ctrl+P', action: () => window.print() },
         '-',
         { label: 'Close Window', key: 'Ctrl+W', action: () => WM.active && WM.active.close() },
         { label: 'Close All', action: () => WM.closeAll() },
@@ -506,4 +505,4 @@ const TB = {
   tile: '<svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" fill="#fff" stroke="#555"/><rect x="11" y="2" width="7" height="7" fill="#fff" stroke="#555"/><rect x="2" y="11" width="7" height="7" fill="#fff" stroke="#555"/><rect x="11" y="11" width="7" height="7" fill="#cfe0f5" stroke="#555"/></svg>',
 };
 
-window.addEventListener('DOMContentLoaded', () => App.init());
+if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', () => App.init()); else App.init();
