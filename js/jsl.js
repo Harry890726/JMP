@@ -792,6 +792,12 @@ const JSL = (() => {
         const stat = sv(['summarystatistic']); if (stat) { const m = GB_STATS.find(s2 => norm(s2) === norm(stat)); if (m) el2.stat = m; }
         const err = sv(['errorinterval', 'errorbars']); if (err) { const m = GB_ERR.find(s2 => norm(s2) === norm(err)); if (m) el2.err = m; }
         const deg = sv(['degree']); if (deg) el2.deg = /quad/i.test(deg) ? 'Quadratic' : /cub/i.test(deg) ? 'Cubic' : 'Linear';
+        const ct = sv(['customintervaltype']); if (ct) { const m = GB_CUSTOM.find(x => norm(x).replace('×', 'x') === norm(ct).replace('×', 'x')) || GB_CUSTOM.find(x => norm(x).startsWith(norm(ct).slice(0, 8))); if (m) el2.ctype = m; }
+        const nv = (keys) => { const a = optArgs(e).find(x => x.k === 'call' && keys.includes(norm(x.name))); return a ? a.args.map(z => this.num(this.ev(z))) : null; };
+        const mk = nv(['multiplier']); if (mk) el2.k = mk[0];
+        const lv = nv(['confidencelevel']); if (lv) el2.level = lv[0];
+        const pc = nv(['percentiles']); if (pc) { el2.plo = pc[0]; el2.phi = pc[1]; }
+        const tw = sv(['two-waytype', 'twowaytype']); if (tw) { const m = GB_TWOWAY.find(x => norm(x) === norm(tw)); if (m) el2.twtype = m; }
         const bs = sv(['barstyle']); if (bs) el2.style = /stack/i.test(bs) ? 'Stacked' : /overlaid/i.test(bs) ? 'Overlaid' : 'Side by side';
         o.els.push(el2);
       }

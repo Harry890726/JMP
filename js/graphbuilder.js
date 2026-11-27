@@ -17,7 +17,9 @@ const GB_ELEMENTS = [
   ['caption', 'Caption Box', '<rect x="9" y="2" width="9" height="6" fill="none" stroke-width="1.3"/><path d="M11 4h5M11 6h3" stroke-width="1"/><circle cx="5" cy="14" r="1.4"/><circle cx="9" cy="12" r="1.4"/>'],
 ];
 const GB_STATS = ['None', 'N', 'Mean', 'Median', 'Mode', 'Geometric Mean', 'Min', 'Max', 'Range', 'Sum', 'Cumulative Sum', 'Cumulative Percent', '% of Total', '% of Factor', '% of Grand Total', 'Std Dev', 'Variance', 'Std Err', 'CV', 'Interquartile Range', 'First Quartile', 'Third Quartile'];
-const GB_ERR = ['None', 'Range', 'Interquartile Range', 'Standard Error', 'Standard Deviation', 'Confidence Interval', 'Median Absolute Deviation'];
+const GB_ERR = ['None', 'Range', 'Interquartile Range', 'Standard Error', 'Standard Deviation', 'Confidence Interval', 'Median Absolute Deviation', 'Custom Interval', 'Two-way Interval'];
+const GB_CUSTOM = ['Standard Error × k', 'Standard Deviation × k', 'Confidence Level', 'Percentiles', 'Interval Column'];
+const GB_TWOWAY = ['Standard Error', 'Standard Deviation', 'Confidence Interval', 'Range', 'Interquartile Range', 'Median Absolute Deviation'];
 const GB_ZONES = { x: 'X', y: 'Y', gx: 'Group X', gy: 'Group Y', wrap: 'Wrap', ov: 'Overlay', color: 'Color', size: 'Size', interval: 'Interval', freq: 'Freq', page: 'Page' };
 const GB_PALETTES = {
   Default: PALETTE,
@@ -46,8 +48,20 @@ const GBStat = {
     }
     return S.mean(v);
   },
-  interval(name, v, center, alpha) {
+  interval(name, v, center, alpha, e = {}, ivc = null) {
     if (!v.length || name === 'None') return null;
+    if (name === 'Two-way Interval') return GBStat.interval(e.twtype || 'Standard Error', v, center, alpha);
+    if (name === 'Custom Interval') {
+      const n = v.length, sd = S.sd(v), m = S.mean(v), c = isNum(center) ? center : m, k = isNum(+e.k) ? +e.k : 2;
+      switch (e.ctype || 'Standard Error × k') {
+        case 'Standard Error × k': return n > 1 ? [c - k * sd / Math.sqrt(n), c + k * sd / Math.sqrt(n)] : null;
+        case 'Standard Deviation × k': return n > 1 ? [c - k * sd, c + k * sd] : null;
+        case 'Confidence Level': { if (n < 2) return null; const L = Math.min(0.9999, Math.max(0.5, +e.level || 0.95)); const h = S.tInv(1 - (1 - L) / 2, n - 1) * sd / Math.sqrt(n); return [m - h, m + h]; }
+        case 'Percentiles': { const sv = S.sorted(v); const lo = Math.max(0, Math.min(100, +e.plo || 0)) / 100, hi = Math.max(0, Math.min(100, isNum(+e.phi) ? +e.phi : 100)) / 100; return [S.quantile(sv, lo), S.quantile(sv, hi)]; }
+        case 'Interval Column': { if (!ivc || !ivc.length) return null; const h = S.mean(ivc); return [c - h, c + h]; }
+      }
+      return null;
+    }
     const s = S.sorted(v), n = v.length, sd = S.sd(v), m = S.mean(v);
     const c = isNum(center) ? center : m;
     switch (name) {
@@ -176,16 +190,34 @@ Platforms.graphbuilder = {
     const chk = (i, key, val) => `<input type="checkbox" data-gbp="${key}" data-i="${i}" ${val ? 'checked' : ''}>`;
     const rng = (i, key, val, min, max, step) => `<input type="range" data-gbp="${key}" data-i="${i}" min="${min}" max="${max}" step="${step}" value="${val}">`;
     const row = (lab, ctl) => `<label class="gbp-r"><span>${lab}</span>${ctl}</label>`;
+    const num = (i, key, val, step = 'any') => `<input type="number" step="${step}" data-gbp="${key}" data-i="${i}" value="${val}">`;
+    const errRows = (i, e, two = false) => {
+      let r = row('Error Interval', sel(i, 'err', two ? GB_ERR : GB_ERR.filter(x => x !== 'Two-way Interval'), e.err));
+      if (e.err === 'Custom Interval') {
+        const ct = e.ctype || GB_CUSTOM[0];
+        r += row('Custom Type', sel(i, 'ctype', GB_CUSTOM, ct));
+        if (/× k/.test(ct)) r += row('Multiplier k', num(i, 'k', e.k ?? 2));
+        if (ct === 'Confidence Level') r += row('Level (0.5–0.9999)', num(i, 'level', e.level ?? 0.95));
+        if (ct === 'Percentiles') r += row('Lower %', num(i, 'plo', e.plo ?? 5)) + row('Upper %', num(i, 'phi', e.phi ?? 95));
+        if (ct === 'Interval Column') r += `<div class="small mut">Drop a column on the <b>Interval</b> zone; its mean in each group is used as ± half-width.</div>`;
+      }
+      if (e.err === 'Two-way Interval') {
+        r += row('Two-way Type', sel(i, 'twtype', GB_TWOWAY, e.twtype || 'Standard Error'));
+        const o = ctx.opts; const ok = o.x !== undefined && !ctx.t.isCat(o.x) && o.y !== undefined && !ctx.t.isCat(o.y);
+        r += `<div class="small mut">${ok ? 'One point per Overlay / Color group with X and Y intervals.' : 'Needs continuous X and Y.'}</div>`;
+      }
+      return r;
+    };
     return `<div class="gb-props">${els.map((e, i) => {
       const lab = (GB_ELEMENTS.find(x => x[0] === e.type) || [0, e.type])[1];
       let rows = '';
       switch (e.type) {
-        case 'points': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS, e.stat)) + row('Error Interval', sel(i, 'err', GB_ERR, e.err)) + row('Interval Style', sel(i, 'style', ['Error Bar', 'Band'], e.style)) + row('Jitter', sel(i, 'jitter', ['Auto', 'None', 'Random Uniform', 'Positive Grid'], e.jitter)) + row('Jitter Limit', rng(i, 'jlim', e.jlim, 0, 1, 0.05)); break;
+        case 'points': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS, e.stat)) + errRows(i, e, true) + row('Interval Style', sel(i, 'style', ['Error Bar', 'Band'], e.style)) + row('Jitter', sel(i, 'jitter', ['Auto', 'None', 'Random Uniform', 'Positive Grid'], e.jitter)) + row('Jitter Limit', rng(i, 'jlim', e.jlim, 0, 1, 0.05)); break;
         case 'smoother': rows = row('Smoothness', rng(i, 'span', e.span, 0.1, 1, 0.05)); break;
         case 'linefit': rows = row('Degree', sel(i, 'deg', ['Linear', 'Quadratic', 'Cubic'], e.deg)) + row('Confidence of Fit', chk(i, 'conf', e.conf)) + row('R²', chk(i, 'r2', e.r2)) + row('Equation', chk(i, 'eq', e.eq)); break;
         case 'ellipse': rows = row('Coverage', sel(i, 'cov', [0.5, 0.9, 0.95, 0.99], e.cov)); break;
-        case 'line': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS, e.stat)) + row('Error Interval', sel(i, 'err', GB_ERR, e.err)) + row('Interval Style', sel(i, 'style', ['Error Bar', 'Band'], e.style)) + row('Connection', sel(i, 'conn', ['Line', 'Step', 'Centered Step'], e.conn)) + row('Row order', chk(i, 'order', e.order)); break;
-        case 'bar': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS.filter(s => s !== 'None'), e.stat)) + row('Error Interval', sel(i, 'err', GB_ERR, e.err)) + row('Bar Style', sel(i, 'style', ['Side by side', 'Stacked', 'Overlaid'], e.style)) + row('Label by Value', chk(i, 'label', e.label)); break;
+        case 'line': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS, e.stat)) + errRows(i, e) + row('Interval Style', sel(i, 'style', ['Error Bar', 'Band'], e.style)) + row('Connection', sel(i, 'conn', ['Line', 'Step', 'Centered Step'], e.conn)) + row('Row order', chk(i, 'order', e.order)); break;
+        case 'bar': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS.filter(s => s !== 'None'), e.stat)) + errRows(i, e) + row('Bar Style', sel(i, 'style', ['Side by side', 'Stacked', 'Overlaid'], e.style)) + row('Label by Value', chk(i, 'label', e.label)); break;
         case 'area': rows = row('Summary Statistic', sel(i, 'stat', GB_STATS.filter(s => s !== 'None'), e.stat)) + row('Stacked', chk(i, 'stacked', e.stacked)); break;
         case 'box': rows = row('Outliers', chk(i, 'outliers', e.outliers)) + row('Show Mean', chk(i, 'mean', e.mean)) + row('Box Width', rng(i, 'width', e.width, 0.1, 1, 0.05)); break;
         case 'histogram': rows = row('Number of bins (0 = auto)', `<input type="number" data-gbp="bins" data-i="${i}" min="0" max="500" value="${e.bins}">`) + row('Density (scale to proportion)', chk(i, 'density', e.density)); break;
@@ -289,6 +321,26 @@ Platforms.graphbuilder = {
       const groups = ovL.map(l => ({ l, rows: l === null ? P.rows : P.rows.filter(r => catKey(o.ov, r) === l) }));
       els.forEach((e, ei) => {
         const statNeeded = (e.type === 'points' && e.stat !== 'None') || e.type === 'line' || e.type === 'bar' || e.type === 'area';
+        if (e.type === 'points' && e.err === 'Two-way Interval' && !xCat && o.x !== undefined && yNum) {
+          // one summary point per group with intervals in both directions
+          const stat = e.stat === 'None' || /%|Cumulative|^N$/.test(e.stat) ? 'Mean' : e.stat;
+          const colorCat = o.color !== undefined && isCat('color');
+          const pts = [];
+          groups.forEach(g => {
+            const subs = colorCat ? levelsOf(o.color).map(l => ({ l, rows: g.rows.filter(r => catKey(o.color, r) === l) })) : [{ l: null, rows: g.rows }];
+            subs.forEach(sg => {
+              if (!sg.rows.length) return;
+              const xv = sg.rows.map(r => val(o.x, r)), yv = sg.rows.map(r => val(o.y, r));
+              const sx = GBStat.compute(stat, xv, null), sy = GBStat.compute(stat, yv, null);
+              const ivx = GBStat.interval(e.twtype || 'Standard Error', xv, sx, alpha), ivy = GBStat.interval(e.twtype || 'Standard Error', yv, sy, alpha);
+              ext(sy); if (ivy) ext(...ivy);
+              pts.push({ x: sx, y: sy, ivx, ivy, rows: sg.rows, group: g.l, sub: sg.l });
+              if (!PG.measure) R._gbSummary.push({ panel: P, page: PG.page, x: sx, group: g.l + (sg.l !== null ? ' / ' + sg.l : ''), stat: `${stat} (Y); X ${stat} = ${fmt(sx, 6)}`, value: sy, n: sg.rows.length, lo: ivy ? ivy[0] : NaN, hi: ivy ? ivy[1] : NaN });
+            });
+          });
+          prims.push({ e, kind: 'twoway', pts, stat });
+          return;
+        }
         if (statNeeded) {
           // summary by x value and overlay group
           const yv = r => yNum ? val(o.y, r) : 1;
@@ -304,7 +356,7 @@ Platforms.graphbuilder = {
               const v = c.rows.map(yv), w = wOf ? c.rows.map(wOf) : null;
               c.v = useCount ? (w ? S.sum(w) : c.rows.length) : GBStat.compute(stat, v, w);
               if (useCount && !['N', 'Sum', 'Cumulative Sum', 'Cumulative Percent', '% of Total', '% of Factor', '% of Grand Total'].includes(stat)) c.v = w ? S.sum(w) : c.rows.length;
-              c.iv = yNum ? GBStat.interval(e.err, v, c.v, alpha) : null;
+              c.iv = yNum ? GBStat.interval(e.err, v, c.v, alpha, e, o.interval !== undefined ? c.rows.map(r => val(o.interval, r)).filter(isNum) : null) : null;
             });
             return { g, cells };
           });
@@ -404,6 +456,17 @@ Platforms.graphbuilder = {
     const ptColor = (r, l) => E.colorOf(r) || E.ovColor(l) || undefined;
     const errBar = (x, lo, hi, color, band) => `<path class="fit" style="stroke:${color};stroke-width:1.2" d="M${x},${E.PY(lo)}V${E.PY(hi)}M${x - 4},${E.PY(lo)}h8M${x - 4},${E.PY(hi)}h8"/>`;
     const errOff = (o.errOffset || 0);
+    if (pr.kind === 'twoway') {
+      for (const q of pr.pts) {
+        const color = (q.sub !== null && q.sub !== undefined && o.color !== undefined ? GB_PALETTES[o.palette || 'Default'][(t.levels(o.color).map(String).indexOf(q.sub)) % GB_PALETTES[o.palette || 'Default'].length] : null) || gColor(q.group, '#2f6bc6');
+        const cx = p.X(q.x), cy = E.PY(q.y);
+        if (q.ivy) p.add(`<path class="fit" style="stroke:${color};stroke-width:1.3" d="M${cx},${E.PY(q.ivy[0])}V${E.PY(q.ivy[1])}M${cx - 4},${E.PY(q.ivy[0])}h8M${cx - 4},${E.PY(q.ivy[1])}h8"/>`);
+        if (q.ivx) p.add(`<path class="fit" style="stroke:${color};stroke-width:1.3" d="M${p.X(q.ivx[0])},${cy}H${p.X(q.ivx[1])}M${p.X(q.ivx[0])},${cy - 4}v8M${p.X(q.ivx[1])},${cy - 4}v8"/>`);
+        const sel = q.rows.some(r => t.rows[r].sel);
+        p.add(`<circle class="pt${sel ? ' sel' : ''}" cx="${cx}" cy="${cy}" r="${sel ? 5.5 : 4.5}" fill="${color}" data-rows="${q.rows.length < 5000 ? q.rows.join(',') : ''}"><title>${esc([q.group, q.sub].filter(x => x !== null && x !== undefined).join(' / ') || 'All')}: ${pr.stat} X = ${fmt(q.x, 5)}, Y = ${fmt(q.y, 5)} (n=${q.rows.length})</title></circle>`);
+      }
+      return;
+    }
     if (pr.kind === 'summary') {
       const nb = pr.perGroup.length;
       pr.perGroup.forEach((pg, gi) => {
@@ -614,6 +677,8 @@ Platforms.graphbuilder = {
       const a = [o.x !== undefined ? 'X' : null, o.y !== undefined ? 'Y' : null].filter(Boolean);
       if (e.stat && e.stat !== 'None' && e.type !== 'caption') a.push(`Summary Statistic( "${e.stat}" )`);
       if (e.err && e.err !== 'None') a.push(`Error Interval( "${e.err}" )`);
+      if (e.err === 'Custom Interval') { a.push(`Custom Interval Type( "${e.ctype || GB_CUSTOM[0]}" )`); if (/× k/.test(e.ctype || GB_CUSTOM[0])) a.push(`Multiplier( ${e.k ?? 2} )`); if (e.ctype === 'Confidence Level') a.push(`Confidence Level( ${e.level ?? 0.95} )`); if (e.ctype === 'Percentiles') a.push(`Percentiles( ${e.plo ?? 5}, ${e.phi ?? 95} )`); }
+      if (e.err === 'Two-way Interval') a.push(`Two Way Type( "${e.twtype || 'Standard Error'}" )`);
       if (e.type === 'linefit' && e.deg !== 'Linear') a.push(`Degree( "${e.deg}" )`);
       if (e.type === 'bar' && e.style !== 'Side by side') a.push(`Bar Style( "${e.style}" )`);
       return `${nm[e.type]}( ${a.join(', ')} )`;
