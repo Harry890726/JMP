@@ -777,7 +777,7 @@ const JSL = (() => {
       const vars = this.argOf(args, ['variables']);
       if (vars) for (const v of vars.args) {
         if (v.k !== 'call') continue; const k = norm(v.name);
-        const z = { x: 'x', y: 'y', overlay: 'ov', color: 'color', groupx: 'gx', wrap: 'wrap', groupy: 'gy', page: 'gy', size: 'size', interval: 'interval', freq: 'freq', frequency: 'freq' }[k];
+        const z = { x: 'x', y: 'y', overlay: 'ov', color: 'color', groupx: 'gx', wrap: 'wrap', groupy: 'gy', page: 'page', size: 'size', interval: 'interval', freq: 'freq', frequency: 'freq' }[k];
         if (!z) { this.ignored(v.name); continue; }
         const cn = v.args.filter(a => this.isColNode(a)); if (cn.length) o[z] = this.toCols(dt, cn[0])[0];
       }
@@ -796,6 +796,11 @@ const JSL = (() => {
         o.els.push(el2);
       }
       if (this.argOf(args, ['showcontrolpanel']) && !this.onArg(args, ['showcontrolpanel'])) o.done = true;
+      const ftw = this.argOf(args, ['fittowindow']);
+      if (ftw) { const v = ftw.args.length ? (optName(ftw.args[0]) || this.str(this.ev(ftw.args[0]))) : 'On'; o.fit = ['Auto', 'On', 'Off', 'Maintain Aspect Ratio'].find(x => norm(x) === norm(v)) || 'On'; }
+      const sz = this.argOf(args, ['size']);
+      if (sz && sz.args.length >= 2) { o.w = this.num(this.ev(sz.args[0])); o.h = this.num(this.ev(sz.args[1])); if (!ftw) o.fit = 'Off'; }
+      const lpa = this.strArg(args, ['linkpageaxes'], null); if (lpa) o.linkPage = ['X and Y', 'X Only', 'Y Only', 'None'].find(x => norm(x) === norm(lpa)) || 'X and Y';
       if (o.x === undefined && o.y === undefined) throw new Error('Graph Builder: specify Variables( X( ... ), Y( ... ) )');
       const r = new Report(dt, 'graphbuilder', {}, o); this.reports.push(r);
       const ldf = this.argOf(args, ['localdatafilter']);

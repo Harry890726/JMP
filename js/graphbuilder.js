@@ -18,7 +18,7 @@ const GB_ELEMENTS = [
 ];
 const GB_STATS = ['None', 'N', 'Mean', 'Median', 'Mode', 'Geometric Mean', 'Min', 'Max', 'Range', 'Sum', 'Cumulative Sum', 'Cumulative Percent', '% of Total', '% of Factor', '% of Grand Total', 'Std Dev', 'Variance', 'Std Err', 'CV', 'Interquartile Range', 'First Quartile', 'Third Quartile'];
 const GB_ERR = ['None', 'Range', 'Interquartile Range', 'Standard Error', 'Standard Deviation', 'Confidence Interval', 'Median Absolute Deviation'];
-const GB_ZONES = { x: 'X', y: 'Y', gx: 'Group X', gy: 'Group Y', wrap: 'Wrap', ov: 'Overlay', color: 'Color', size: 'Size', interval: 'Interval', freq: 'Freq' };
+const GB_ZONES = { x: 'X', y: 'Y', gx: 'Group X', gy: 'Group Y', wrap: 'Wrap', ov: 'Overlay', color: 'Color', size: 'Size', interval: 'Interval', freq: 'Freq', page: 'Page' };
 const GB_PALETTES = {
   Default: PALETTE,
   'Muted': ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'],
@@ -134,7 +134,7 @@ Platforms.graphbuilder = {
           ${control ? zone('gx') + zone('y') : ''}
           <div class="gb-plot">${graph.html}</div>
           ${control ? zone('gy') : ''}
-          <div class="gb-side">${control ? `<div class="gb-zcol">${zone('wrap')}${zone('ov')}${zone('color')}${zone('size')}${zone('interval')}${zone('freq')}</div>` : ''}${legendBottom ? '' : legend}</div>
+          <div class="gb-side">${control ? `<div class="gb-zcol">${zone('wrap')}${zone('ov')}${zone('color')}${zone('size')}${zone('interval')}${zone('freq')}${zone('page')}</div>` : ''}${legendBottom ? '' : legend}</div>
           ${control ? zone('x') : ''}
           ${legendBottom ? `<div class="gb-legb">${legend}</div>` : ''}
         </div>
@@ -154,7 +154,9 @@ Platforms.graphbuilder = {
           ...Object.keys(GB_GRADIENTS).map(p => ({ label: 'Continuous: ' + p, checked: (o.gradient || 'Blue to Red') === p, action: set('gradient', p) }))] },
         { label: 'Lock Scales', checked: !!o.lock, action: () => { R.opts.lock = o.lock ? null : R._gbScales; rr(); } },
         { label: 'Error Bar Offset...', action: () => UI.prompt('Error Bar Offset', [{ key: 'v', label: 'Offset (fraction of band, -0.5 to 0.5)', type: 'number', value: o.errOffset || 0 }]).then(v => { if (v) { R.opts.errOffset = Math.max(-0.5, Math.min(0.5, v.v || 0)); rr(); } }) },
-        { label: 'Graph Size...', action: () => UI.prompt('Graph Size', [{ key: 'w', label: 'Width (px)', type: 'number', value: o.w || 640 }, { key: 'h', label: 'Height (px)', type: 'number', value: o.h || 440 }]).then(v => { if (v) { R.opts.w = Math.max(240, v.w || 640); R.opts.h = Math.max(180, v.h || 440); rr(); } }) },
+        { label: 'Graph Size...', action: () => UI.prompt('Graph Size', [{ key: 'w', label: 'Width (px)', type: 'number', value: o.w || 640 }, { key: 'h', label: 'Height (px)', type: 'number', value: o.h || 440 }]).then(v => { if (v) { R.opts.w = Math.max(240, v.w || 640); R.opts.h = Math.max(180, v.h || 440); R.opts.fit = 'Off'; rr(); } }) },
+        { label: 'Link Page Axes', disabled: o.page === undefined, submenu: ['X and Y', 'X Only', 'Y Only', 'None'].map(k => ({ label: k, checked: (o.linkPage || 'X and Y') === k, action: set('linkPage', k) })) },
+        { label: 'Fit to Window', submenu: ['Auto', 'On', 'Off', 'Maintain Aspect Ratio'].map(k => ({ label: k, checked: (o.fit || 'Auto') === k, action: () => { R.opts.fit = k; if (k === 'Maintain Aspect Ratio' && !o.aspect) { const sv = R.body.querySelector('.gb-plot svg'); if (sv) R.opts.aspect = Math.min(1.5, Math.max(0.3, sv.clientHeight / sv.clientWidth || 0.68)); } rr(); } })) },
         { label: 'Sampling...', action: () => UI.prompt('Sampling', [{ key: 'n', label: 'Maximum points to draw (0 = default)', type: 'number', value: o.sampling || 0 }]).then(v => { if (v) { R.opts.sampling = v.n > 0 ? Math.round(v.n) : undefined; rr(); } }) },
         { label: 'Graph Spacing...', action: () => UI.prompt('Graph Spacing', [{ key: 'g', label: 'Space between panels (px)', type: 'number', value: o.spacing || 0 }]).then(v => { if (v) { R.opts.spacing = Math.max(0, v.g || 0); rr(); } }) },
         { label: 'Include Missing Categories', checked: !!o.missingCats, action: set('missingCats', !o.missingCats) },
@@ -196,12 +198,37 @@ Platforms.graphbuilder = {
   },
 
   // ---------- graph ----------
+  /** Pages: one full graph per level of the Page column, optionally on linked axes */
   graph(ctx, els) {
     const t = ctx.t, o = ctx.opts, R = ctx.rep;
     R._gbSummary = [];
+    if (o.page === undefined || !t.columns[o.page] || (o.x === undefined && o.y === undefined)) return this.graphCore(ctx, els, {});
+    const pv = t.columns[o.page].values;
+    const key = r => DataTable.isMissing(pv[r]) ? '(missing)' : String(pv[r]);
+    const base = ctx.rows.filter(r => o.missingCats || !DataTable.isMissing(pv[r]));
+    let levels = t.levels(o.page, base).map(String); if (o.missingCats && base.some(r => DataTable.isMissing(pv[r]))) levels.push('(missing)');
+    if (levels.length > 60) levels = levels.slice(0, 60);
+    const link = o.linkPage || 'X and Y';
+    let override = null;
+    if (link !== 'None' && levels.length > 1) {
+      const sc = levels.map(l => this.graphCore(ctx, els, { page: l, pageTest: r => key(r) === l, measure: true }));
+      const uni = k => { const v = sc.map(x => x && x[k]).filter(Boolean); return v.length ? { min: S.min(v.map(x => x.min)), max: S.max(v.map(x => x.max)) } : null; };
+      override = { xs: /X/.test(link) ? uni('xs') : null, ys: /Y/.test(link) ? uni('ys') : null };
+      R._gbSummary = [];
+    }
+    R._gbScales = null;
+    const parts = levels.map(l => ({ l, g: this.graphCore(ctx, els, { page: l, pageTest: r => key(r) === l, override, npages: levels.length }) }));
+    const pname = t.columns[o.page].name;
+    return {
+      html: parts.map(({ l, g }) => `<div class="gb-page"><div class="gb-pageh">${esc(pname)} = ${esc(l)}</div>${g.html}</div>`).join(''),
+      legend: parts.length ? parts[0].g.legend : '', n: S.sum(parts.map(x => x.g.n)), notes: [...new Set(parts.flatMap(x => x.g.notes))],
+    };
+  },
+  graphCore(ctx, els, PG) {
+    const t = ctx.t, o = ctx.opts, R = ctx.rep;
     const notes = [];
     if (o.x === undefined && o.y === undefined) return { html: `<div class="gb-empty">Drop a column on <b>X</b> or <b>Y</b> to start.<br><span class="small">Tip: double-click a column to put it on X, then Y.</span></div>`, legend: '', n: 0, notes };
-    const cols = ['x', 'y', 'gx', 'gy', 'wrap', 'ov', 'color', 'size', 'interval', 'freq'].filter(k => o[k] !== undefined && t.columns[o[k]]);
+    const cols = ['x', 'y', 'gx', 'gy', 'wrap', 'ov', 'color', 'size', 'interval', 'freq', 'page'].filter(k => o[k] !== undefined && t.columns[o[k]]);
     const val = (ci, r) => t.columns[ci].values[r];
     const isCat = k => o[k] !== undefined && t.isCat(o[k]);
     const MISS = '(missing)';
@@ -210,9 +237,12 @@ Platforms.graphbuilder = {
     let rows = ctx.rows.filter(r => !t.rows[r].hid && cols.every(k => {
       const v = val(o[k], r);
       if (!DataTable.isMissing(v)) return true;
-      return !!o.missingCats && t.isCat(o[k]) && ['x', 'y', 'gx', 'gy', 'wrap', 'ov', 'color'].includes(k);
+      return !!o.missingCats && t.isCat(o[k]) && ['x', 'y', 'gx', 'gy', 'wrap', 'ov', 'color', 'page'].includes(k);
     }));
-    const levelsOf = ci => { const lv = t.levels(ci, rows).map(String); if (o.missingCats && rows.some(r => DataTable.isMissing(val(ci, r)))) lv.push(MISS); return lv; };
+    // levels and color/size ranges come from all rows so every page uses the same categories and colors
+    const allRows = rows;
+    if (PG.pageTest) rows = rows.filter(PG.pageTest);
+    const levelsOf = ci => { const lv = t.levels(ci, allRows).map(String); if (o.missingCats && allRows.some(r => DataTable.isMissing(val(ci, r)))) lv.push(MISS); return lv; };
     const xCat = isCat('x'), yCat = isCat('y');
     const pal = GB_PALETTES[o.palette || 'Default'], grad = GB_GRADIENTS[o.gradient || 'Blue to Red'];
     const ovL = o.ov !== undefined ? levelsOf(o.ov) : [null];
@@ -222,12 +252,12 @@ Platforms.graphbuilder = {
     if (o.color !== undefined) {
       const ci = o.color;
       if (isCat('color')) { const lv = levelsOf(ci); colorOf = r => pal[lv.indexOf(catKey(ci, r)) % pal.length]; legendHtml += this.legendCat(t.columns[ci].name, lv, l => pal[lv.indexOf(l) % pal.length], 'color'); }
-      else { let lo = Infinity, hi = -Infinity; for (const r of rows) { const v = val(ci, r); if (v < lo) lo = v; if (v > hi) hi = v; } colorOf = r => lerpColor(grad, (val(ci, r) - lo) / (hi - lo || 1)); legendHtml += `<div class="gb-leg"><div class="b small">${esc(t.columns[ci].name)}</div><div class="gb-grad" style="background:linear-gradient(90deg,${grad.join(',')})"></div><div class="gb-gradl small"><span>${fmt(lo, 4)}</span><span>${fmt(hi, 4)}</span></div></div>`; }
+      else { let lo = Infinity, hi = -Infinity; for (const r of allRows) { const v = val(ci, r); if (v < lo) lo = v; if (v > hi) hi = v; } colorOf = r => lerpColor(grad, (val(ci, r) - lo) / (hi - lo || 1)); legendHtml += `<div class="gb-leg"><div class="b small">${esc(t.columns[ci].name)}</div><div class="gb-grad" style="background:linear-gradient(90deg,${grad.join(',')})"></div><div class="gb-gradl small"><span>${fmt(lo, 4)}</span><span>${fmt(hi, 4)}</span></div></div>`; }
     }
     if (o.ov !== undefined) legendHtml = this.legendCat(t.columns[o.ov].name, ovL, ovColor, 'ov') + legendHtml;
     // size zone
     let sizeOf = () => null;
-    if (o.size !== undefined && !isCat('size')) { let lo = Infinity, hi = -Infinity; for (const r of rows) { const v = val(o.size, r); if (v < lo) lo = v; if (v > hi) hi = v; } sizeOf = r => 2 + 9 * Math.sqrt(Math.max(0, (val(o.size, r) - lo) / (hi - lo || 1))); legendHtml += `<div class="gb-leg"><div class="b small">${esc(t.columns[o.size].name)} (size)</div><div class="small">${fmt(lo, 4)} … ${fmt(hi, 4)}</div></div>`; }
+    if (o.size !== undefined && !isCat('size')) { let lo = Infinity, hi = -Infinity; for (const r of allRows) { const v = val(o.size, r); if (v < lo) lo = v; if (v > hi) hi = v; } sizeOf = r => 2 + 9 * Math.sqrt(Math.max(0, (val(o.size, r) - lo) / (hi - lo || 1))); legendHtml += `<div class="gb-leg"><div class="b small">${esc(t.columns[o.size].name)} (size)</div><div class="small">${fmt(lo, 4)} … ${fmt(hi, 4)}</div></div>`; }
     const wOf = o.freq !== undefined ? r => Math.max(0, +val(o.freq, r) || 0) : null;
     // panels
     let panels;
@@ -296,7 +326,7 @@ Platforms.graphbuilder = {
           perGroup.forEach((pg, gi) => pg.cells.forEach(c => {
             ext(c.v + (c.base || 0), c.base || 0); if (c.iv) ext(...c.iv);
             if (e.type === 'bar' || e.type === 'area') ext(0);
-            R._gbSummary.push({ panel: P, x: c.x, group: pg.g.l, stat: useCount ? (wOf ? 'Sum(Freq)' : 'N') : stat, value: c.v, n: c.rows.length, lo: c.iv ? c.iv[0] : NaN, hi: c.iv ? c.iv[1] : NaN });
+            if (!PG.measure) R._gbSummary.push({ panel: P, page: PG.page, x: c.x, group: pg.g.l, stat: useCount ? (wOf ? 'Sum(Freq)' : 'N') : stat, value: c.v, n: c.rows.length, lo: c.iv ? c.iv[0] : NaN, hi: c.iv ? c.iv[1] : NaN });
           }));
           prims.push({ e, kind: 'summary', perGroup, stat: useCount ? 'N' : stat });
         } else prims.push({ e, kind: 'raw', groups });
@@ -319,14 +349,23 @@ Platforms.graphbuilder = {
     if (yNone) ys = { min: 0, max: 1, pad: false };
     // lock scales
     if (o.lock) { if (o.lock.xs && !xs.levels && !o.lock.xs.levels) Object.assign(xs, o.lock.xs); if (o.lock.ys && !ys.levels && !o.lock.ys.levels) Object.assign(ys, o.lock.ys); }
-    R._gbScales = { xs: xs.levels ? null : { min: xs.min, max: xs.max }, ys: ys.levels ? null : { min: ys.min, max: ys.max } };
+    if (PG.override) { if (PG.override.xs && !xs.levels) Object.assign(xs, PG.override.xs); if (PG.override.ys && !ys.levels) Object.assign(ys, PG.override.ys); }
+    const scales = { xs: xs.levels ? null : { min: xs.min, max: xs.max }, ys: ys.levels ? null : { min: ys.min, max: ys.max } };
+    if (PG.measure) return scales;
+    if (!PG.page || !R._gbScales) R._gbScales = scales;
     // sampling
     const sampleN = o.sampling || POINT_LIMIT;
     const keep = r => rows.length <= sampleN || t.rows[r].sel || hash01(r) * rows.length <= sampleN;
     if (rows.length > sampleN) notes.push(`showing a sample of ~${sampleN.toLocaleString()} of ${rows.length.toLocaleString()} points`);
     // draw panels
-    const bw0 = (R.body.clientWidth || 1000) - (o.done ? 240 : 520) - (R.ldf ? 250 : 0);
-    const W = o.w || Math.max(380, Math.min(1100, bw0)), Hh = o.h || Math.max(320, Math.min(720, (R.body.clientHeight || 600) - 190)), gap = o.spacing || 0;
+    const fit = o.fit || 'Auto';
+    const availW = Math.max(300, (R.body.clientWidth || 1000) - (o.done ? 200 : 500) - (R.ldf ? 250 : 0) - (o.done ? 0 : 0));
+    const availH = Math.max(240, (R.body.clientHeight || 600) - (o.done ? 120 : 190) - (PG.npages > 1 ? 30 : 0));
+    let W, Hh;
+    if (fit === 'Off') { W = o.w || 640; Hh = o.h || 440; }
+    else if (fit === 'Maintain Aspect Ratio') { W = Math.max(300, Math.min(availW, availH / (o.aspect || 0.68))); Hh = W * (o.aspect || 0.68); }
+    else { W = availW; Hh = availH; }
+    const gap = o.spacing || 0;
     const ncol = panels.ncol, nrow = panels.nrow;
     const pw = Math.max(140, Math.floor((W - 60) / ncol)), ph = Math.max(110, Math.floor((Hh - 50) / nrow));
     const show = { grid: true, xtitle: true, ytitle: true, ...(o.show || {}) };
@@ -510,6 +549,15 @@ Platforms.graphbuilder = {
   },
   after(rep) {
     const b = rep.body;
+    if (!rep._gbRO && typeof ResizeObserver !== 'undefined') {
+      let last = [b.clientWidth, b.clientHeight], tm;
+      rep._gbRO = new ResizeObserver(() => {
+        const now = [b.clientWidth, b.clientHeight];
+        if ((rep.opts.fit || 'Auto') === 'Off' || (Math.abs(now[0] - last[0]) < 16 && Math.abs(now[1] - last[1]) < 16)) return;
+        last = now; clearTimeout(tm); tm = setTimeout(() => rep.render(), 120);
+      });
+      rep._gbRO.observe(b);
+    }
     $$('.gb-cols li', b).forEach(li => {
       li.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', 'cols:' + li.dataset.ci));
       li.addEventListener('dblclick', () => { const ci = +li.dataset.ci; const k = rep.opts.x === undefined ? 'x' : rep.opts.y === undefined ? 'y' : 'ov'; this.assign(rep, k, ci); });
@@ -545,6 +593,7 @@ Platforms.graphbuilder = {
     const t = R.t, o = R.opts, s = R._gbSummary;
     const nt = new DataTable(`${t.name} Graph Builder Summary`); nt.addRows(s.length);
     const add = (name, key, vals) => { if (vals.every(v => v === undefined || v === null)) return; const num = vals.every(v => typeof v === 'number' || v === undefined || v === null); nt.addColumn({ name, dataType: num ? 'numeric' : 'character', values: vals.map(v => v === undefined || v === null ? (num ? NaN : '') : v) }); };
+    if (o.page !== undefined) add(t.columns[o.page].name, 'pg', s.map(x => x.page));
     if (o.wrap !== undefined) add(t.columns[o.wrap].name, 'w', s.map(x => x.panel.label));
     if (o.gx !== undefined) add(t.columns[o.gx].name, 'gx', s.map(x => x.panel.gx));
     if (o.gy !== undefined) add(t.columns[o.gy].name, 'gy', s.map(x => x.panel.gy));
@@ -558,7 +607,7 @@ Platforms.graphbuilder = {
   },
   toJSL(R) {
     const t = R.t, o = R.opts; const q = ci => `:${/^[A-Za-z_][\w.]*$/.test(t.columns[ci].name) ? t.columns[ci].name : `Name( "${t.columns[ci].name.replace(/"/g, '\\!"')}" )`}`;
-    const map = { x: 'X', y: 'Y', gx: 'Group X', gy: 'Group Y', wrap: 'Wrap', ov: 'Overlay', color: 'Color', size: 'Size', interval: 'Interval', freq: 'Freq' };
+    const map = { x: 'X', y: 'Y', gx: 'Group X', gy: 'Group Y', wrap: 'Wrap', ov: 'Overlay', color: 'Color', size: 'Size', interval: 'Interval', freq: 'Freq', page: 'Page' };
     const vars = Object.keys(map).filter(k => o[k] !== undefined).map(k => `${map[k]}( ${q(o[k])} )`).join(', ');
     const nm = { points: 'Points', smoother: 'Smoother', linefit: 'Line Of Fit', ellipse: 'Ellipse', line: 'Line', bar: 'Bar', area: 'Area', box: 'Box Plot', histogram: 'Histogram', heatmap: 'Heatmap', pie: 'Pie', caption: 'Caption Box' };
     const els = this.elements(t, o).map(e => {
@@ -569,7 +618,7 @@ Platforms.graphbuilder = {
       if (e.type === 'bar' && e.style !== 'Side by side') a.push(`Bar Style( "${e.style}" )`);
       return `${nm[e.type]}( ${a.join(', ')} )`;
     }).join(', ');
-    let s = `Graph Builder(\n    Show Control Panel( ${o.done ? 0 : 1} ),\n    Variables( ${vars} ),\n    Elements( ${els} )`;
+    let s = `Graph Builder(\n    Show Control Panel( ${o.done ? 0 : 1} ),${o.fit && o.fit !== 'Auto' ? `\n    Fit to Window( "${o.fit}" ),` : ''}${o.fit === 'Off' && o.w ? `\n    Size( ${Math.round(o.w)}, ${Math.round(o.h)} ),` : ''}${o.page !== undefined && o.linkPage && o.linkPage !== 'X and Y' ? `\n    Link Page Axes( "${o.linkPage}" ),` : ''}\n    Variables( ${vars} ),\n    Elements( ${els} )`;
     if (R.ldf && R.ldf.conds.length) s += `,\n    Local Data Filter(\n${R.ldf.conds.map(c => `        Add Filter( columns( :${c.name} ), Where( ${c.type === 'range' ? `:${c.name} >= ${c.lo} & :${c.name} <= ${c.hi}` : c.sel.length ? c.sel.map(v => `:${c.name} == "${v}"`).join(' | ') : '1'} ) )`).join(',\n')}\n    )`;
     return s + '\n);';
   },

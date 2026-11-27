@@ -59,7 +59,7 @@ class Report {
     this.render();
     App.reports.push(this);
   }
-  dispose() { this.unsub(); App.reports = App.reports.filter(r => r !== this); }
+  dispose() { if (this._gbRO) this._gbRO.disconnect(); this.unsub(); App.reports = App.reports.filter(r => r !== this); }
   render() {
     const st = this.body.scrollTop, sl = this.body.scrollLeft;
     const ctx = new Ctx(this);

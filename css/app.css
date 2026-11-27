@@ -378,3 +378,5 @@ svg.plot { display: block; overflow: visible; user-select: none; font-family: va
 .gbp-r input[type=checkbox] { justify-self: start; }
 .gbp-r input[type=range] { width: 100%; }
 .gb.done .gb-area { grid-template-columns: auto minmax(0, auto); grid-template-areas: "plot side" "legb legb"; }
+.gb-page { margin-bottom: 10px; }
+.gb-pageh { font-weight: 600; font-size: 12.5px; padding: 3px 8px; margin: 0 0 4px 30px; background: #e9edf2; border: 1px solid #d3dae3; border-radius: 3px; display: inline-block; }
