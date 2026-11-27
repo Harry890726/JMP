@@ -65,19 +65,42 @@ function rng(seed = 1) {
 const PALETTE = ['#2f6bc6', '#d9412b', '#2e9a3a', '#f39c12', '#8e44ad', '#16a2b8', '#d6487e', '#7a9a01', '#a0522d', '#34495e',
   '#5dade2', '#e74c3c', '#58d68d', '#f5b041', '#af7ac5'];
 
-/** Export text: tries a direct download and also shows the content with a Copy button
-    (some hosts, e.g. sandboxed viewers, block downloads). */
-function download(name, text, mime = 'text/plain') {
+/** Save a generated file. Inside the claude.ai viewer this goes through the `downloads`
+    capability; in a normal browser it uses a download link. data: string | Uint8Array | Blob */
+const DL_OK = ['txt', 'json', 'md', 'csv', 'html', 'svg', 'pdf', 'xlsx', 'zip', 'png', 'jpg', 'jpeg'];
+let _dlCap;
+async function download(name, data, mime = 'text/plain') {
+  const inViewer = typeof window.claude === 'object' && window.claude && typeof window.claude.use === 'function';
+  if (inViewer) {
+    if (_dlCap === undefined) { try { _dlCap = await window.claude.use('downloads'); } catch (e) { _dlCap = null; } }
+    if (_dlCap) {
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      const fname = DL_OK.includes(ext) ? name : name + '.txt';
+      try { await _dlCap.save({ filename: fname, data: data instanceof Uint8Array ? data.slice() : data }); status(`Saved ${fname}`); return true; }
+      catch (e) {
+        const code = e && e.code;
+        if (code === 'declined') { status('Save cancelled'); return false; }
+        if (code === 'rate_limited') { status('Another save is waiting for confirmation; try again in a moment.'); return false; }
+        if (code === 'host_unavailable') { UI.alert('This app cannot save files. Open the page in a web browser or on a computer to save it.'); return false; }
+        if (typeof data !== 'string') { UI.alert(`The file could not be saved here (${esc(code || 'unavailable')}).`); return false; }
+      }
+    }
+    if (typeof data === 'string') return exportDialog(name, data);
+    UI.alert('Saving files is not available in this view.'); return false;
+  }
   try {
-    const blob = new Blob([text], { type: mime });
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
-  } catch (e) { /* ignore */ }
-  if (typeof UI === 'undefined') return;
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    return true;
+  } catch (e) { if (typeof data === 'string') return exportDialog(name, data); return false; }
+}
+/** Fallback: show text content with a Copy button */
+function exportDialog(name, text) {
   const big = text.length > 400000;
-  const content = el(`<div class="form"><div class="small">If the file did not download, copy the content below and save it as <b>${esc(name)}</b>.</div>
+  const content = el(`<div class="form"><div class="small">Copy the content below and save it as <b>${esc(name)}</b>.</div>
     <textarea id="exporttext" rows="14" spellcheck="false" readonly>${big ? '' : esc(text)}</textarea><div class="small mut exportmsg"></div></div>`);
   if (big) content.querySelector('textarea').value = text;
   UI.dialog({ title: 'Export ' + name, width: 620, content, buttons: [{ label: 'Copy', primary: true, onClick: b => {
@@ -85,6 +108,7 @@ function download(name, text, mime = 'text/plain') {
     const sel = () => { ta.focus(); ta.select(); msg.textContent = 'Text selected. Press Ctrl+C (⌘C) to copy.'; };
     try { navigator.clipboard.writeText(text).then(() => { msg.textContent = 'Copied to clipboard.'; }, sel); } catch (e) { sel(); }
     return false; } }, { label: 'Close', value: null }] });
+  return false;
 }
 
 let _uid = 0;

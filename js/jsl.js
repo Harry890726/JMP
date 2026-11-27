@@ -648,7 +648,12 @@ const JSL = (() => {
     setname(dt, args) { dt.name = this.str(this.ev(args[0])); dt.emit('structure'); WM.refreshList(); return dt; },
     getcolumnnames(dt, args) { const s = args.some(a => /string/i.test(optName(a))); return dt.columns.map(c => s ? c.name : new ColRef(dt, c.name)); },
     getasmatrix(dt) { return dt.columns.filter(c => c.dataType === 'numeric').map(c => c.values); },
-    save(dt, args) { const p = args.length ? this.str(this.ev(args[0])) : dt.name + '.csv'; download(p.split(/[\\/]/).pop().replace(/\.jmp$/i, '.csv'), dt.toCSV(), 'text/csv'); return dt; },
+    save(dt, args) {
+      const p = (args.length ? this.str(this.ev(args[0])) : dt.name + '.xlsx').split(/[\\/]/).pop();
+      if (/\.csv$|\.txt$/i.test(p)) download(p, dt.toCSV(), 'text/csv');
+      else Excel.save([dt], p.replace(/\.(jmp|xls|xlsm|xlsb)$/i, '') .replace(/(\.xlsx)?$/i, '.xlsx'));
+      return dt;
+    },
     closewindow(dt) { const w = WM.wins.find(w => w.kind === 'table' && w.table === dt); if (w) w.close(); },
     runformulas(dt) { dt.emit('data'); return dt; }, rerunformulas(dt) { dt.emit('data'); return dt; },
     bringwindowtofront(dt) { const w = WM.wins.find(w => w.kind === 'table' && w.table === dt); if (w) w.focus(); return dt; },

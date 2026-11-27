@@ -268,18 +268,16 @@ const App = {
   },
   /** Excel workbook: every non-empty sheet opens as a data table */
   openExcel(fileName, buf) {
-    if (typeof XLSX === 'undefined') return UI.alert('The Excel reader could not be loaded (it needs an internet connection the first time). Save the sheet as CSV and open that instead.', 'Excel reader unavailable');
-    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-    const base = fileName.replace(/\.[^.]+$/, '');
-    const sheets = wb.SheetNames.map(sn => ({ sn, rows: XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '', blankrows: false }) })).filter(s => s.rows.length);
-    if (!sheets.length) return UI.alert(`${esc(fileName)} has no data.`);
-    for (const s of sheets) {
-      const t = DataTable.fromRows(s.rows, sheets.length === 1 ? base : `${base} - ${s.sn}`);
-      t.sourceFile = base; t.sheetName = s.sn;
-      this.openTable(t);
-    }
-    status(`Opened ${fileName}: ${sheets.length} sheet(s)`);
+    if (!Excel.ready()) return UI.alert('The Excel reader could not be loaded (it needs an internet connection the first time). Save the sheet as CSV and open that instead.', 'Excel reader unavailable');
+    const tables = Excel.readWorkbook(buf, fileName);
+    if (!tables.length) return UI.alert(`${esc(fileName)} has no data.`);
+    tables.forEach(t => this.openTable(t));
+    const nf = tables.reduce((a, t) => a + (t.formulaCount || 0), 0);
+    status(`Opened ${fileName}: ${tables.length} sheet(s)${nf ? `, ${nf} formula column(s)` : ''}`);
+    const notes = tables.map(t => t.notes).filter(Boolean);
+    if (notes.length) UI.alert(`Some Excel formulas could not be translated, so those columns contain values only:<br><br><span class="small">${esc(notes.join(' '))}</span>`, 'Excel formulas');
   },
+  saveExcel(t) { Excel.save([t], `${t.name}.xlsx`); },
   saveCSV(t) { download(`${t.name}.csv`, t.toCSV(), 'text/csv'); },
   saveProject() {
     if (!this.tables.length) return UI.alert('Nothing to save.');
@@ -319,6 +317,7 @@ const App = {
     return [
       { label: 'Rename Table...', action: () => UI.prompt('Rename Table', [{ key: 'n', label: 'Name', type: 'text', value: t.name }]).then(v => { if (v && v.n.trim()) { t.name = v.n.trim(); t.emit('structure'); WM.refreshList(); } }) },
       { label: 'Copy Table', action: () => this.openTable(t.clone(t.name + ' Copy')) },
+      { label: 'Save As Excel (.xlsx)', action: () => this.saveExcel(t) },
       { label: 'Save As CSV', action: () => this.saveCSV(t) },
       '-', { label: 'Distribution of All Columns', action: () => new Report(t, 'distribution', { y: [...t.columns.keys()] }) },
       { label: 'Columns Viewer', action: () => new Report(t, 'colviewer', { y: [...t.columns.keys()] }) },
@@ -334,7 +333,9 @@ const App = {
         { label: 'Sample Data', submenu: Samples.names.map(n => ({ label: n, action: () => this.openSample(n) })) },
         { label: 'New Table from Clipboard', action: () => this.pasteTable() },
         '-',
-        { label: 'Save As CSV...', key: 'Ctrl+S', action: N(t => this.saveCSV(t)) },
+        { label: 'Save As Excel (.xlsx)...', key: 'Ctrl+S', action: N(t => this.saveExcel(t)) },
+        { label: 'Save As CSV...', action: N(t => this.saveCSV(t)) },
+        { label: 'Save All Tables as Excel Workbook...', action: () => this.tables.length ? Excel.save(this.tables, 'StatLab Tables.xlsx') : UI.alert('No data tables are open.') },
         { label: 'Save Project (all tables)...', action: () => this.saveProject() },
         { label: 'Export Report as HTML', action: () => this.exportReport() },
         '-',
@@ -426,7 +427,7 @@ const App = {
   buildToolbar() {
     const B = (icon, title, fn) => ({ icon, title, fn });
     const items = [
-      B(TB.new, 'New Data Table', () => this.newTable()), B(TB.open, 'Open', () => $('#fileinput').click()), B(TB.save, 'Save As CSV', this.need(t => this.saveCSV(t))), '|',
+      B(TB.new, 'New Data Table', () => this.newTable()), B(TB.open, 'Open', () => $('#fileinput').click()), B(TB.save, 'Save As Excel (.xlsx)', this.need(t => this.saveExcel(t))), '|',
       B(TB.sample, 'Sample Data', e => { const r = e.currentTarget.getBoundingClientRect(); UI.menu(Samples.names.map(n => ({ label: n, action: () => this.openSample(n) })), r.left, r.bottom); }), '|',
       B(TB.dist, 'Distribution', this.launch('distribution')), B(TB.fxy, 'Fit Y by X', this.launch('fitxy')), B(TB.fm, 'Fit Model', this.launch('fitmodel')),
       B(TB.tab, 'Tabulate', this.launch('tabulate')), B(TB.gb, 'Graph Builder', this.launch('graphbuilder')), B(TB.cc, 'Control Chart', this.launch('control', 'IR')), '|',
@@ -474,7 +475,7 @@ const App = {
   },
   help(k) {
     if (k === 'about') return UI.alert(`<div style="display:flex;gap:14px;align-items:center">${LOGO_BIG}<div><b>StatLab Explorer</b><br>An open, browser-based interactive statistics workbench.<br><span class="small mut">Independent project; not affiliated with or endorsed by any commercial statistics software vendor.</span></div></div>`, 'About');
-    if (k === 'keys') return UI.alert(`<table class="rt kv">${[['Ctrl+N', 'New data table'], ['Ctrl+O', 'Open file'], ['Ctrl+S', 'Save current table as CSV'], ['Ctrl+A', 'Select all rows'], ['Ctrl+E', 'Exclude/unexclude selected rows'], ['Ctrl+H', 'Hide/unhide selected rows'], ['Ctrl+G', 'Graph Builder'], ['Ctrl+W', 'Close window'], ['Esc', 'Clear selection / close menus'], ['Shift+click', 'Extend selection'], ['Ctrl+click', 'Toggle selection'], ['Drag on plot', 'Brush-select points'], ['Double-click cell', 'Edit value'], ['Double-click column header', 'Column Info']].map(([a, b]) => `<tr><td><b>${a}</b></td><td>${b}</td></tr>`).join('')}</table>`, 'Keyboard Shortcuts');
+    if (k === 'keys') return UI.alert(`<table class="rt kv">${[['Ctrl+N', 'New data table'], ['Ctrl+O', 'Open file'], ['Ctrl+S', 'Save current table as Excel (.xlsx)'], ['Ctrl+A', 'Select all rows'], ['Ctrl+E', 'Exclude/unexclude selected rows'], ['Ctrl+H', 'Hide/unhide selected rows'], ['Ctrl+G', 'Graph Builder'], ['Ctrl+W', 'Close window'], ['Esc', 'Clear selection / close menus'], ['Shift+click', 'Extend selection'], ['Ctrl+click', 'Toggle selection'], ['Drag on plot', 'Brush-select points'], ['Double-click cell', 'Edit value'], ['Double-click column header', 'Column Info']].map(([a, b]) => `<tr><td><b>${a}</b></td><td>${b}</td></tr>`).join('')}</table>`, 'Keyboard Shortcuts');
     if (k === 'jsl') return UI.alert(`<div class="msg small" style="max-width:640px">Open a <b>.jsl</b> file (File ▸ Open) or File ▸ New Script, then click <b>Run Script</b> (Ctrl+R). Run the script after opening your data: <code>Current Data Table()</code> is the table you used last.<br><br>
       <b>Data table messages</b> (<code>dt &lt;&lt; …</code>): Stack, Sort, Subset, Summary, Split, Transpose, Join, Concatenate, New Column (Formula, Set Values), Add Rows, Delete Rows, Delete Columns, Select Where, Get Rows Where, Select All Rows, Clear Select, Invert Row Selection, Exclude, Hide, Label, Clear Row States, Color By Column, Set Name, Get Name, Get Column Names, Save.<br>
       <b>Columns</b> (<code>col &lt;&lt; …</code>): Set Name, Set Modeling Type, Set Data Type, Set Formula, Get Values, Set Values.<br>
@@ -502,7 +503,7 @@ RandomNormal(0, 1)</pre>`, 'Formula Functions');
       const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
       if (e.key === 'Escape') { UI.closeMenus(0); if (this.active) { this.active.selCols.clear(); this.active.select([], 'replace'); } return; }
       if (!mod) return;
-      const map = { t: () => ScriptWin.open(), n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveCSV(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
+      const map = { t: () => ScriptWin.open(), n: () => this.newTable(), o: () => $('#fileinput').click(), s: this.need(t => this.saveExcel(t)), a: this.need(t => t.select([...t.rows.keys()])), g: this.launch('graphbuilder'), w: () => WM.active && WM.active.close(),
         e: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].exc); s.forEach(r => t.rows[r].exc = on); t.emit('rows'); }),
         h: this.need(t => { const s = t.selectedRows(); const on = !s.every(r => t.rows[r].hid); s.forEach(r => t.rows[r].hid = on); t.emit('rows'); }),
         c: this.need(t => { if (!window.getSelection().toString()) this.copyRows(t); }) };
