@@ -776,16 +776,34 @@ const JSL = (() => {
       const o = { els: [] };
       const vars = this.argOf(args, ['variables']);
       if (vars) for (const v of vars.args) {
-        if (v.k !== 'call') continue; const k = norm(v.name); const z = { x: 'x', y: 'y', overlay: 'ov', color: 'ov', groupx: 'gx', wrap: 'gx', groupy: 'gy', page: 'gy' }[k];
+        if (v.k !== 'call') continue; const k = norm(v.name);
+        const z = { x: 'x', y: 'y', overlay: 'ov', color: 'color', groupx: 'gx', wrap: 'wrap', groupy: 'gy', page: 'gy', size: 'size', interval: 'interval', freq: 'freq', frequency: 'freq' }[k];
         if (!z) { this.ignored(v.name); continue; }
         const cn = v.args.filter(a => this.isColNode(a)); if (cn.length) o[z] = this.toCols(dt, cn[0])[0];
       }
-      const elMap = { points: 'points', smoother: 'smoother', lineoffit: 'linefit', line: 'line', bar: 'bar', boxplot: 'box', histogram: 'histogram', heatmap: 'heatmap', area: 'area' };
+      const elMap = { points: 'points', smoother: 'smoother', lineoffit: 'linefit', ellipse: 'ellipse', line: 'line', bar: 'bar', boxplot: 'box', histogram: 'histogram', heatmap: 'heatmap', area: 'area', pie: 'pie', captionbox: 'caption' };
+      const GB = Platforms.graphbuilder;
       const els = this.argOf(args, ['elements']);
-      if (els) for (const e of els.args) { const k = norm(optName(e)); if (elMap[k]) o.els.push(elMap[k]); else if (k) this.ignored(optName(e)); }
+      if (els) for (const e of els.args) {
+        const k = norm(optName(e)); const type = elMap[k];
+        if (!type) { if (k) this.ignored(optName(e)); continue; }
+        const el2 = { type, ...GB.elDefaults(type, o, dt) };
+        const sv = (keys) => { const a = optArgs(e).find(x => x.k === 'call' && keys.includes(norm(x.name))); return a && a.args.length ? this.str(this.ev(a.args[0])) : null; };
+        const stat = sv(['summarystatistic']); if (stat) { const m = GB_STATS.find(s2 => norm(s2) === norm(stat)); if (m) el2.stat = m; }
+        const err = sv(['errorinterval', 'errorbars']); if (err) { const m = GB_ERR.find(s2 => norm(s2) === norm(err)); if (m) el2.err = m; }
+        const deg = sv(['degree']); if (deg) el2.deg = /quad/i.test(deg) ? 'Quadratic' : /cub/i.test(deg) ? 'Cubic' : 'Linear';
+        const bs = sv(['barstyle']); if (bs) el2.style = /stack/i.test(bs) ? 'Stacked' : /overlaid/i.test(bs) ? 'Overlaid' : 'Side by side';
+        o.els.push(el2);
+      }
       if (this.argOf(args, ['showcontrolpanel']) && !this.onArg(args, ['showcontrolpanel'])) o.done = true;
       if (o.x === undefined && o.y === undefined) throw new Error('Graph Builder: specify Variables( X( ... ), Y( ... ) )');
       const r = new Report(dt, 'graphbuilder', {}, o); this.reports.push(r);
+      const ldf = this.argOf(args, ['localdatafilter']);
+      if (ldf) {
+        r.ldf = { conds: [] };
+        for (const af of findCalls(ldf, 'addfilter')) for (const cc of findCalls(af, 'columns')) for (const ci of cc.args.flatMap(a => this.toCols(dt, a))) r.ldf.conds.push(LDF.newCond(dt, ci, dt.analysisRows()));
+        r.render();
+      }
       return r;
     },
     multivariate(dt, args) {
